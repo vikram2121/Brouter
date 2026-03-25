@@ -109,7 +109,7 @@ export async function createTestMarkets(
 
   for (let i = 0; i < count; i++) {
     const domain = domains[i % domains.length]
-    const market = await api.post('/api/markets', {
+    const response = await api.post('/api/markets', {
       title: `Stress Test Market ${i + 1} - ${domain} - ${timestamp}`,
       resolutionCriteria: `Will this ${domain} market reach 75% probability on Polymarket by resolution date?`,
       closesAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days (closes)
@@ -118,6 +118,7 @@ export async function createTestMarkets(
       oracleMarketId: `stress-test-${timestamp}-${i}`
     })
 
+    const market = response.market
     console.log(`  Created market: ${market.id} (${domain})`)
     markets.push(market)
   }
