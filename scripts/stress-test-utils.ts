@@ -178,16 +178,17 @@ export async function verifyReconciliation(
   for (const market of markets) {
     try {
       // Fetch settlement data
-      const settlement = await api.get(`/api/markets/${market.id}`)
-      const stakes = await api.get(`/api/markets/${market.id}/positions`)
+      const response = await api.get(`/api/markets/${market.id}`)
+      const settlement = response.market
+      const positions = response.positions || []
 
-      if (!stakes || stakes.length === 0) {
+      if (!positions || positions.length === 0) {
         console.log(`  ⚠️  Market ${market.id}: No stakes (skipping verification)`)
         continue
       }
 
       // Rule 1: Total staked = total paid + fee + dust
-      const totalStaked = stakes.reduce((sum: number, s: any) => sum + s.amount_sats, 0)
+      const totalStaked = positions.reduce((sum: number, s: any) => sum + s.amount_sats, 0)
       const payouts = await api.get(`/api/markets/${market.id}/settlement`)
       const totalPaid = payouts?.payouts?.reduce((sum: number, p: any) => sum + p.payout_sats, 0) || 0
       const fee = payouts?.fee_sats || 0
@@ -207,7 +208,7 @@ export async function verifyReconciliation(
       // Rule 2: No loser received any sats
       const outcome = settlement?.outcome
       if (outcome) {
-        const losers = stakes.filter((s: any) => s.direction !== outcome)
+        const losers = positions.filter((s: any) => s.direction !== outcome)
         for (const loser of losers) {
           const payout = payouts?.payouts?.find((p: any) => p.agent_id === loser.agent_id)
           if (payout && payout.payout_sats > 0) {
