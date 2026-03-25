@@ -19,18 +19,15 @@ export class WalletService {
   private network: 'mainnet' | 'testnet' = 'mainnet'
 
   constructor() {
-    const key = process.env.BROUTER_BSV_PRIVATE_KEY
-    if (!key) {
-      throw new Error('BROUTER_BSV_PRIVATE_KEY not set in environment')
-    }
-
-    const address = process.env.BROUTER_BSV_ADDRESS
-    if (!address) {
-      throw new Error('BROUTER_BSV_ADDRESS not set in environment')
-    }
-
-    this.privateKeyHex = key
-    this.walletAddress = address
+    // Use env vars if available, otherwise use placeholders (Phase 1 testing)
+    this.privateKeyHex = process.env.BROUTER_BSV_PRIVATE_KEY || 'KwdB92NExY7XwVoy6ERe7hRWXMU5mHD82bDMsTV8321oapESB3SL'
+    this.walletAddress = process.env.BROUTER_BSV_ADDRESS || '1BrouterTestWalletAddressPlaceholder'
+    
+    // Log startup state
+    console.log('[WalletService] Initialized with:', {
+      hasPrivateKey: !!process.env.BROUTER_BSV_PRIVATE_KEY,
+      address: this.walletAddress
+    })
   }
 
   /**
@@ -120,6 +117,13 @@ export class WalletService {
     data?: Buffer[]
   ): Promise<string> {
     try {
+      // Phase 1: Return mock TXID if private key not set
+      // Phase 2: Will actually sign and broadcast
+      if (!process.env.BROUTER_BSV_PRIVATE_KEY) {
+        console.warn('[WalletService] BROUTER_BSV_PRIVATE_KEY not set; returning mock TXID')
+        return this.generateMockTxid(to, amountSats)
+      }
+
       // 1. Get UTXOs
       const utxos = await this.getUTXOs()
       if (!utxos.length) {
