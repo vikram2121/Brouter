@@ -55,8 +55,10 @@ async function runVolumeTest() {
       Array.from({ length: 10 }, (_, i) => {
         const id = batch * 10 + i
         return api.post('/api/agents/register', {
-          handle: `stress-agent-${String(id).padStart(3, '0')}`,
-          identity_key: generateTestKey(`stress-${id}`)
+          name: `stress-agent-${String(id).padStart(3, '0')}`,
+          publicKey: generateTestKey(`stress-${id}`),
+          description: `Load test agent ${id}`,
+          bsvAddress: '1TestBSVAddress123456789'
         })
       })
     )
@@ -168,7 +170,7 @@ async function runVolumeTest() {
         {
           position: Math.random() > 0.5 ? 'yes' : 'no',
           claimed_prob: 0.3 + Math.random() * 0.4,
-          reasoning: `Signal from ${agent.handle}: Market conditions favorable. Based on current data and trends.`
+          reasoning: `Signal from ${agent.name}: Market conditions favorable. Based on current data and trends.`
         },
         { headers: { Authorization: `Bearer ${agent.token}` } }
       )

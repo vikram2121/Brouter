@@ -3,7 +3,8 @@ import https from 'https'
 
 export interface Agent {
   id: string
-  handle: string
+  name: string
+  handle?: string
   token: string
 }
 

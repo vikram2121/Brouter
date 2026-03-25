@@ -28,16 +28,16 @@ import {
 } from './stress-test-utils'
 
 const AGENTS_CONFIG = [
-  { handle: 'macro-bull', domain: 'macro', strategy: 'always_yes' },
-  { handle: 'macro-bear', domain: 'macro', strategy: 'always_no' },
-  { handle: 'crypto-long', domain: 'crypto', strategy: 'always_yes' },
-  { handle: 'crypto-short', domain: 'crypto', strategy: 'always_no' },
-  { handle: 'calibrated-1', domain: 'macro', strategy: 'follow_odds' },
-  { handle: 'calibrated-2', domain: 'crypto', strategy: 'follow_odds' },
-  { handle: 'contrarian-1', domain: 'macro', strategy: 'fade_market' },
-  { handle: 'contrarian-2', domain: 'crypto', strategy: 'fade_market' },
-  { handle: 'signal-only', domain: 'macro', strategy: 'signal_only' },
-  { handle: 'voter-only', domain: 'macro', strategy: 'vote_only' }
+  { handle: 'macrobull', domain: 'macro', strategy: 'always_yes' },
+  { handle: 'macrobear', domain: 'macro', strategy: 'always_no' },
+  { handle: 'cryptolong', domain: 'crypto', strategy: 'always_yes' },
+  { handle: 'cryptoshort', domain: 'crypto', strategy: 'always_no' },
+  { handle: 'calibrated1', domain: 'macro', strategy: 'follow_odds' },
+  { handle: 'calibrated2', domain: 'crypto', strategy: 'follow_odds' },
+  { handle: 'contrarian1', domain: 'macro', strategy: 'fade_market' },
+  { handle: 'contrarian2', domain: 'crypto', strategy: 'fade_market' },
+  { handle: 'signalonly', domain: 'macro', strategy: 'signal_only' },
+  { handle: 'voteronly', domain: 'macro', strategy: 'vote_only' }
 ]
 
 const strategies: Record<string, (market?: any) => string | null> = {
@@ -62,11 +62,13 @@ async function runCorrectnessTest() {
   for (const config of AGENTS_CONFIG) {
     try {
       const agent = await api.post('/api/agents/register', {
-        handle: config.handle,
-        identity_key: generateTestKey(config.handle)
+        name: config.handle,
+        publicKey: generateTestKey(config.handle),
+        description: `Test agent for domain: ${config.domain}`,
+        bsvAddress: '1TestBSVAddress123456789'
       })
       agents.push(agent)
-      console.log(`  ✅ ${config.handle}`)
+      console.log(`  ✅ ${agent.name || agent.handle || config.handle}`)
     } catch (err) {
       console.error(`  ❌ Failed to register ${config.handle}:`, err)
       process.exit(1)
@@ -82,9 +84,9 @@ async function runCorrectnessTest() {
         {},
         { headers: { Authorization: `Bearer ${agent.token}` } }
       )
-      console.log(`  ✅ ${agent.handle}: +1000 sats`)
+      console.log(`  ✅ ${agent.name}: +1000 sats`)
     } catch (err) {
-      console.log(`  ⚠️  ${agent.handle}: Faucet already claimed or error`, (err as any)?.message)
+      console.log(`  ⚠️  ${agent.name}: Faucet already claimed or error`, (err as any)?.message)
     }
   }
 
@@ -114,7 +116,7 @@ async function runCorrectnessTest() {
   let totalStakes = 0
   for (const market of markets) {
     for (const agent of agents) {
-      const config = AGENTS_CONFIG.find((a) => a.handle === agent.handle)
+      const config = AGENTS_CONFIG.find((a) => a.handle === agent.name)
       if (!config) continue
 
       const strategyFn = strategies[config.strategy]
@@ -137,7 +139,7 @@ async function runCorrectnessTest() {
         )
         totalStakes++
       } catch (err) {
-        console.error(`  ❌ ${agent.handle} failed to stake on market ${market.id}:`, err)
+        console.error(`  ❌ ${agent.name} failed to stake on market ${market.id}:`, err)
       }
     }
   }
@@ -162,13 +164,13 @@ async function runCorrectnessTest() {
           {
             position,
             claimed_prob: 0.4 + Math.random() * 0.2,
-            reasoning: `Signal from ${agent.handle}: Market appears to be heading ${position.toUpperCase()}`
+            reasoning: `Signal from ${agent.name}: Market appears to be heading ${position.toUpperCase()}`
           },
           { headers: { Authorization: `Bearer ${agent.token}` } }
         )
         signalsPosted++
       } catch (err) {
-        console.log(`  ⚠️  ${agent.handle} signal failed:`, (err as any)?.message)
+        console.log(`  ⚠️  ${agent.name} signal failed:`, (err as any)?.message)
       }
     }
   }
