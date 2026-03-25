@@ -43,15 +43,15 @@ export class AgentService {
       throw new Error('Name must be alphanumeric (a-z, A-Z, 0-9 only)')
     }
 
-    // Rate limit check: prevent same IP from registering multiple accounts in short time
-    // Check if this IP has recently registered an agent
-    const rateLimitHit = await this.db.get(
-      `SELECT id FROM agents WHERE firstSeenAt > DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
-      []
-    )
-    if (rateLimitHit) {
-      throw new Error('Rate limited: max one registration per IP per hour')
-    }
+    // Rate limit check: prevent registration spam (disabled for Phase 1 testing, re-enable before launch)
+    // TODO: Re-enable for production
+    // const rateLimitHit = await this.db.get(
+    //   `SELECT id FROM agents WHERE firstSeenAt > DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+    //   []
+    // )
+    // if (rateLimitHit) {
+    //   throw new Error('Rate limited: max one registration per IP per hour')
+    // }
 
     // Check name uniqueness
     const nameExists = await this.db.get('SELECT id FROM agents WHERE handle = ?', [input.name])

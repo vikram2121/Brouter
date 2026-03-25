@@ -127,10 +127,11 @@ export async function createTestMarkets(
 }
 
 /**
- * Generate deterministic test keys for reproducibility
+ * Generate deterministic hex-encoded test keys for reproducibility
+ * Returns a 66-character hex string (33 bytes: compressed secp256k1 pubkey)
  */
 export function generateTestKey(seed: string): string {
-  // Simple deterministic key generation (not cryptographically secure, just for testing)
+  // Simple deterministic hash from seed
   let hash = 0
   for (let i = 0; i < seed.length; i++) {
     const char = seed.charCodeAt(i)
@@ -138,7 +139,12 @@ export function generateTestKey(seed: string): string {
     hash = hash & hash // Convert to 32-bit integer
   }
 
-  return `stress_test_key_${Math.abs(hash)}_${seed}`.substring(0, 64)
+  // Create a 66-hex-char string (33 bytes in hex)
+  // Compressed pubkey: 02 (1 byte) + 32 bytes of data
+  const hashHex = Math.abs(hash).toString(16).padStart(8, '0')
+  const seedBytes = Buffer.from(seed).toString('hex').padEnd(64, '0')
+  const hex = '02' + hashHex + seedBytes.substring(0, 56)
+  return hex.substring(0, 66)
 }
 
 /**
