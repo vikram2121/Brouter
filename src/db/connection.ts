@@ -76,8 +76,12 @@ class Database implements DbConnection {
           try {
             await this.run(statement)
             execCount++
+            // Log first 100 chars of each executed statement for debugging
+            const preview = statement.substring(0, 100).replace(/\n/g, ' ')
+            console.log(`  [${execCount}] ${preview}...`)
           } catch (err) {
             console.error(`[DB Schema] Failed to execute statement ${execCount + 1}:`, err)
+            console.error(`  Statement: ${statement.substring(0, 200)}`)
             throw err
           }
         }
