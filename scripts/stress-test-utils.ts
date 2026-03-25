@@ -113,7 +113,7 @@ export async function createTestMarkets(
       title: `Stress Test Market ${i + 1} - ${domain} - ${timestamp}`,
       description: `Stress test market for load testing. Domain: ${domain}`,
       domain,
-      resolution_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+      resolvesAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
       min_stake_sats: 100,
       oracle_provider: 'polymarket',
       oracle_market_id: `stress-test-${timestamp}-${i}`
