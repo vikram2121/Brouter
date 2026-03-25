@@ -177,6 +177,16 @@ Transition LOCKED → RESOLVING (admin only).
 POST /api/markets/{id}/resolve
 Transition RESOLVING → SETTLED and trigger settlement (auth required, results in payouts).
 
+Request body:
+{
+  "outcome": "yes",  // or "no" or "void" (required)
+  "evidenceUrl": "https://polymarket.com/market/0x1234abcd",  // (optional)
+  "evidenceNote": "Market settled YES at 18:30 UTC. Screenshot verified."  // (optional)
+}
+
+Evidence fields enable public verification. The resolution outcome is stored with a link to the oracle source.
+This creates accountability: any user can click the link and verify your resolution against the external oracle.
+
 ### Signals
 
 GET /api/signals

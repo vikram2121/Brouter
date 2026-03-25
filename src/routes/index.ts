@@ -969,15 +969,47 @@ router.post('/markets/:id/start-resolution', async (req: Request, res: Response)
   }
 })
 
-/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required) */
+/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required)
+ *  
+ * Request body:
+ *   outcome: 'yes' | 'no' | 'void' (required)
+ *   evidenceUrl: string (optional, e.g., https://polymarket.com/market/0x1234abcd)
+ *   evidenceNote: string (optional, e.g., "Market settled YES at 18:30 UTC. Screenshot archived.")
+ * 
+ * Evidence fields enable public accountability: any user can click the link and verify the resolution.
+ * Closes the trust gap between manual resolution and automated verification (Phase 2.5).
+ */
 router.post('/markets/:id/resolve', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { outcome } = req.body
+    const { outcome, evidenceUrl, evidenceNote } = req.body
     if (!['yes', 'no', 'void'].includes(outcome)) return fail(res, 'outcome must be yes, no, or void')
+    
+    // Validate evidence URL if provided
+    if (evidenceUrl) {
+      try {
+        new URL(evidenceUrl)
+      } catch {
+        return fail(res, 'evidenceUrl must be a valid URL', 400)
+      }
+      if (evidenceUrl.length > 512) return fail(res, 'evidenceUrl must be <= 512 chars', 400)
+    }
+    
+    if (evidenceNote && evidenceNote.length > 1000) {
+      return fail(res, 'evidenceNote must be <= 1000 chars', 400)
+    }
+
     const resolvedBy = (req as any).agentId
 
     // 1. Update market state: RESOLVING → SETTLED
     const market = await marketService.resolve(req.params.id, outcome, resolvedBy)
+
+    // 1b. Store evidence (if provided)
+    if (evidenceUrl || evidenceNote) {
+      await db.run(
+        'UPDATE markets SET evidenceUrl = ?, evidenceNote = ? WHERE id = ?',
+        [evidenceUrl || null, evidenceNote || null, req.params.id]
+      )
+    }
 
     // 2. Wire in market settlement: Calculate payouts, update calibration, anchor to BSV
     const settlement = await settlementEngine.settle(req.params.id, outcome, resolvedBy)

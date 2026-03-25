@@ -43,6 +43,8 @@ export interface Market {
   oracleThreshold?: string
   outcome?: Outcome        // NULL until resolved
   resolvedBy?: string      // agentId or 'oracle' or 'system'
+  evidenceUrl?: string     // URL to oracle source (e.g., Polymarket market page)
+  evidenceNote?: string    // Human-readable resolution note (e.g., "Settled YES at 18:30 UTC")
   disputeWindowEndsAt?: Date
 
   // Participation
