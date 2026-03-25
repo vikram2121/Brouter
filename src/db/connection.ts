@@ -40,6 +40,11 @@ class Database implements DbConnection {
 
     // Initialize schema if needed
     await this.initializeSchema()
+    
+    // Run migrations (add any missing columns, etc.)
+    const { runMigrations } = await import('./migrations')
+    await runMigrations(this)
+    
     console.log(`✓ Database connected: ${host}/${database}`)
   }
 
