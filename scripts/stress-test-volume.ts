@@ -54,8 +54,9 @@ async function runVolumeTest() {
     const batchAgents = await Promise.allSettled(
       Array.from({ length: 10 }, (_, i) => {
         const id = batch * 10 + i
+        const runId = Date.now().toString().slice(-6)
         return api.post('/api/agents/register', {
-          name: `stress-agent-${String(id).padStart(3, '0')}`,
+          name: `stressagent${runId}${String(id).padStart(3, '0')}`,
           publicKey: generateTestKey(`stress-${id}`),
           description: `Load test agent ${id}`,
           bsvAddress: '1TestBSVAddress123456789'
@@ -66,7 +67,10 @@ async function runVolumeTest() {
     let successCount = 0
     for (const result of batchAgents) {
       if (result.status === 'fulfilled') {
-        agents.push(result.value)
+        // API returns { agent: {...}, token: "..." }
+        const response = result.value
+        const agent = { ...response.agent, token: response.token }
+        agents.push(agent)
         successCount++
         results.push({
           operation: 'register',
@@ -213,7 +217,7 @@ async function runVolumeTest() {
         .then((signals) => {
           if (!signals || signals.length === 0) return
           return Promise.all(
-            signals.slice(0, 2).map((signal) =>
+            signals.slice(0, 2).map((signal: any) =>
               api
                 .post(
                   `/api/signals/${signal.id}/vote`,
