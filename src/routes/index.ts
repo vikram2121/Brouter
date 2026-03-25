@@ -12,6 +12,7 @@ import { MarketService } from '../services/MarketService'
 import { SettlementEngine, type SettlementConfig } from '../services/SettlementEngine'
 import { SignalPoolService } from '../services/SignalPoolService'
 import { CalibrationService } from '../services/CalibrationService'
+import { walletService } from '../services/WalletService'
 
 // Initialize services
 const postService = new PostService(db)
@@ -246,37 +247,59 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
 
 /**
  * POST /api/agents/:id/faucet
- * Claim starter sats (1000 sats per agent, one-time only)
- * Requires auth and matching agent ID
+ * Claim starter sats (5000 sats per agent, one-time only, sent as real BSV)
+ * Requires auth, matching agent ID, and valid BSV address
  */
 router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
 
-    const db = (agentService as any).db
-
-    // Check if agent has already claimed faucet (has a faucet_claimed record or balance > 0)
+    // Check if agent has already claimed faucet
     const existing = await db.get(
       'SELECT id FROM agents WHERE id = ? AND faucet_claimed = 1',
       [agentId]
     )
     if (existing) return fail(res, 'Faucet already claimed for this agent', 400)
 
-    const FAUCET_AMOUNT = 1000 // sats
-    
-    // Update agent: mark faucet claimed and add balance
-    await db.run(
-      `UPDATE agents 
-       SET faucet_claimed = 1, 
-           balance_sats = COALESCE(balance_sats, 0) + ?,
-           faucet_claimed_at = NOW()
-       WHERE id = ?`,
-      [FAUCET_AMOUNT, agentId]
+    // Get agent and verify BSV address
+    const agent = await agentService.getById(agentId)
+    if (!agent) return fail(res, 'Agent not found', 404)
+
+    // For Phase 2: require verified BSV address
+    // For now, allow claiming if agent has a bsvAddress (even if not verified)
+    const agentData = await db.get(
+      'SELECT bsvAddress, bsvAddressVerifiedAt FROM agents WHERE id = ?',
+      [agentId]
     )
 
-    const agent = await agentService.getById(agentId)
-    ok(res, { agent, claimed_sats: FAUCET_AMOUNT }, 200)
+    if (!agentData?.bsvAddress) {
+      return fail(res, 'BSV address required (set via agent profile)', 400)
+    }
+
+    const FAUCET_AMOUNT = 5000 // 5000 sats = $0.05 (rounded from $0.50 test per agent)
+    
+    try {
+      // Send real BSV from Brouter wallet to agent address
+      const txid = await walletService.sendBSV(agentData.bsvAddress, FAUCET_AMOUNT)
+
+      // Update agent: mark faucet claimed and record tx
+      await db.run(
+        `UPDATE agents 
+         SET faucet_claimed = 1, 
+             balance_sats = COALESCE(balance_sats, 0) + ?,
+             faucet_claimed_at = NOW()
+         WHERE id = ?`,
+        [FAUCET_AMOUNT, agentId]
+      )
+
+      const updatedAgent = await agentService.getById(agentId)
+      ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200)
+    } catch (bsvError: any) {
+      // If BSV send fails, don't mark faucet as claimed
+      console.error('[Faucet] BSV send failed:', bsvError.message)
+      fail(res, `Failed to send BSV: ${bsvError.message}`, 500)
+    }
   } catch (error: any) {
     fail(res, error.message, 500)
   }
@@ -364,6 +387,45 @@ router.get('/agents/:id', async (req: Request, res: Response) => {
     const agent = await agentService.getById(req.params.id)
     if (!agent) return fail(res, 'Agent not found', 404)
     ok(res, agent)
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * POST /api/agents/:id/bsv-address
+ * Register or update agent's BSV address for settlement payouts
+ * Requires auth and matching agent ID
+ */
+router.post('/agents/:id/bsv-address', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+
+    const { bsvAddress } = req.body
+    if (!bsvAddress || typeof bsvAddress !== 'string') {
+      return fail(res, 'bsvAddress (string) required in body', 400)
+    }
+
+    // Basic validation: BSV P2PKH addresses start with 1 and are 34 chars
+    if (!/^1[a-zA-Z0-9]{33}$/.test(bsvAddress)) {
+      return fail(res, 'Invalid BSV address format', 400)
+    }
+
+    // TODO (Phase 2): Add signature verification to prove address ownership
+    // For Phase 1: Accept address registration without verification
+
+    // Update agent address
+    await db.run(
+      `UPDATE agents 
+       SET bsvAddress = ?,
+           bsvAddressVerifiedAt = NOW()
+       WHERE id = ?`,
+      [bsvAddress, agentId]
+    )
+
+    const agent = await agentService.getById(agentId)
+    ok(res, { agent, message: 'BSV address registered' }, 200)
   } catch (error: any) {
     fail(res, error.message, 500)
   }
