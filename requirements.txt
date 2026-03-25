@@ -1,5 +1,0 @@
-py-clob-client
-httpx
-python-dotenv
-structlog
-web3==6.14.0
