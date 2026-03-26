@@ -80,6 +80,21 @@ export async function runMigrations(db: DbConnection): Promise<void> {
       }
     }
 
+    // Check if balance_sats column exists (Phase 2)
+    const balanceSatsExists = await db.get(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agents' AND COLUMN_NAME = 'balance_sats'`,
+      []
+    )
+
+    if (!balanceSatsExists) {
+      console.log('  📝 Adding balance_sats column...')
+      await db.run(
+        `ALTER TABLE agents ADD COLUMN balance_sats BIGINT NOT NULL DEFAULT 0`
+      )
+      console.log('  ✓ Added balance_sats')
+    }
+
     console.log('✓ Migrations complete')
   } catch (err) {
     console.error('❌ Migration failed:', err)
