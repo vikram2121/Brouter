@@ -108,8 +108,18 @@ async function runVolumeTest() {
     process.exit(1)
   }
 
-  // Step 3: Open all markets
-  console.log('\nStep 3: Opening markets...')
+  // Step 3: Claim faucet for all agents (gives balance for staking)
+  console.log('\nStep 3: Claiming faucet for all agents...')
+  const faucetResults = await Promise.allSettled(
+    agents.map((agent) =>
+      api.post(`/api/agents/${agent.id}/faucet`, {}, { headers: { Authorization: `Bearer ${agent.token}` } })
+    )
+  )
+  const faucetSuccess = faucetResults.filter((r) => r.status === 'fulfilled').length
+  console.log(`  ✅ ${faucetSuccess}/${agents.length} faucet claims succeeded`)
+
+  // Step 3b: Open all markets
+  console.log('\nStep 3b: Opening markets...')
   for (const market of markets) {
     try {
       await api.post(`/api/markets/${market.id}/open`, {})
@@ -127,10 +137,10 @@ async function runVolumeTest() {
       const opStart = Date.now()
       return api
         .post(
-          `/api/markets/${market.id}/position`,
+          `/api/markets/${market.id}/stake`,
           {
-            direction: Math.random() > 0.5 ? 'yes' : 'no',
-            amount_sats: randomBetween(100, 1000)
+            outcome: Math.random() > 0.5 ? 'yes' : 'no',
+            amountSats: randomBetween(100, 500)
           },
           { headers: { Authorization: `Bearer ${agent.token}` } }
         )

@@ -95,6 +95,19 @@ export async function runMigrations(db: DbConnection): Promise<void> {
       console.log('  ✓ Added balance_sats')
     }
 
+    // Check if evidenceUrl column exists on markets (Phase 2.5)
+    const evidenceUrlExists = await db.get(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'markets' AND COLUMN_NAME = 'evidenceUrl'`,
+      []
+    )
+    if (!evidenceUrlExists) {
+      console.log('  📝 Adding evidenceUrl + evidenceNote to markets...')
+      await db.run(`ALTER TABLE markets ADD COLUMN evidenceUrl VARCHAR(512) NULL`)
+      await db.run(`ALTER TABLE markets ADD COLUMN evidenceNote TEXT NULL`)
+      console.log('  ✓ Added evidenceUrl, evidenceNote')
+    }
+
     console.log('✓ Migrations complete')
   } catch (err) {
     console.error('❌ Migration failed:', err)
