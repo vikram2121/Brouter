@@ -251,19 +251,28 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
  * Requires auth, matching agent ID, and valid BSV address
  */
 router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Response) => {
-  const agentId = (req as any).agentId
-  if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
 
-  // Phase 2 mock: Just return faucet without any DB operations
-  const FAUCET_AMOUNT = 5000
-  const txid = 'mock_txid_' + Date.now()
+    // Check not already claimed
+    const existing = await db.get('SELECT faucet_claimed FROM agents WHERE id = ?', [agentId])
+    if (!existing) return fail(res, 'Agent not found', 404)
+    if (existing.faucet_claimed) return fail(res, 'Faucet already claimed', 400)
 
-  ok(res, {
-    agent: { id: agentId },
-    claimed_sats: FAUCET_AMOUNT,
-    txid: txid,
-    message: 'Faucet claimed (Phase 2 mock)'
-  }, 200)
+    const FAUCET_AMOUNT = 5000
+    const txid = 'mock_txid_' + Date.now()
+
+    // Credit balance and mark claimed
+    await db.run(
+      `UPDATE agents SET balance_sats = balance_sats + ?, faucet_claimed = 1, faucet_claimed_at = NOW() WHERE id = ?`,
+      [FAUCET_AMOUNT, agentId]
+    )
+
+    ok(res, { agent: { id: agentId }, claimed_sats: FAUCET_AMOUNT, txid }, 200)
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
 })
 
 /**
