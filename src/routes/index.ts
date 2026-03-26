@@ -15,6 +15,7 @@ import { CalibrationService } from '../services/CalibrationService'
 import { OracleResolver } from '../services/OracleResolver'
 import { ConsensusService } from '../services/ConsensusService'
 import { AnvilService } from '../services/AnvilService'
+import { X402Service } from '../services/X402Service'
 import { walletService } from '../services/WalletService'
 
 // Initialize services
@@ -29,6 +30,7 @@ const calibrationService = new CalibrationService(db)
 const oracleResolver = new OracleResolver()
 const consensusService = new ConsensusService(db)
 const anvilService = new AnvilService()
+const x402Service = new X402Service(db)
 
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig: SettlementConfig = {
@@ -1533,16 +1535,79 @@ router.post('/agents/:id/oracle/publish', requireAuth, async (req: Request, res:
 /**
  * GET /api/markets/:id/oracle/signals
  * Layer 3: Query all oracle signals for a market from the Anvil mesh.
- * Returns verified signals from all publishers (agents + oracles).
+ *
+ * Monetised signals require payment (x402 flow):
+ *   1. First call returns 402 with X-Payment-Required header
+ *   2. Consumer pays the signal publisher's BSV address
+ *   3. Retry with X-Payment header containing base64(JSON({txhex, payeeLockingScript, priceSats}))
+ *
+ * Free signals (bsvAddress not set) are returned without payment.
  */
 router.get('/markets/:id/oracle/signals', async (req: Request, res: Response) => {
   try {
     const signals = await anvilService.queryOracleSignals(req.params.id)
+
+    // Separate free vs monetised signals
+    const freeSignals = signals.filter((s: any) => !s.monetization?.payee_locking_script_hex)
+    const paidSignals = signals.filter((s: any) => !!s.monetization?.payee_locking_script_hex)
+
+    // If there are monetised signals, check for payment
+    let verifiedPaidSignals: typeof signals = []
+    if (paidSignals.length > 0) {
+      const xPayment = req.headers['x-payment'] as string | undefined
+
+      if (!xPayment) {
+        // Return 402 with payment instructions for the cheapest signal
+        const cheapest = paidSignals.reduce((a: any, b: any) =>
+          (a.monetization?.price_sats || 0) <= (b.monetization?.price_sats || 0) ? a : b
+        )
+        const priceSats = cheapest.monetization?.price_sats || 50
+        const lockingScript = cheapest.monetization?.payee_locking_script_hex || ''
+
+        // Build payment request directly with the locking script from the envelope
+        const paymentRequest = {
+          type: 'x402' as const,
+          version: '1' as const,
+          payeeLockingScript: lockingScript,
+          priceSats,
+          description: `Oracle signals for market ${req.params.id}`,
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          nonce: require('crypto').randomBytes(16).toString('hex'),
+        }
+
+        const headers = x402Service.paymentRequiredHeaders(paymentRequest)
+        return res.status(402).set(headers).json({
+          status: 'payment_required',
+          code: 402,
+          message: `${paidSignals.length} monetised signal(s) require payment`,
+          payment: paymentRequest,
+          free_signals: freeSignals,
+          free_count: freeSignals.length,
+          paid_count: paidSignals.length,
+        })
+      }
+
+      // Verify payment against each monetised signal's locking script
+      for (const signal of paidSignals) {
+        const lockScript = signal.monetization?.payee_locking_script_hex || ''
+        const priceSats = signal.monetization?.price_sats || 50
+        const result = await x402Service.verifyPayment(xPayment, lockScript, priceSats)
+        if (result.valid) {
+          verifiedPaidSignals.push({ ...signal, payment_txid: result.txid })
+        }
+        // If invalid, silently exclude that signal (consumer's payment may not cover all)
+      }
+    }
+
+    const allSignals = [...freeSignals, ...verifiedPaidSignals]
     const outcome = await anvilService.getMultiSourceOutcome(req.params.id)
+
     ok(res, {
       marketId: req.params.id,
-      signals,
-      count: signals.length,
+      signals: allSignals,
+      count: allSignals.length,
+      free_count: freeSignals.length,
+      paid_count: verifiedPaidSignals.length,
       mesh_consensus: outcome,
     })
   } catch (error: any) {

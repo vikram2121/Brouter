@@ -37,7 +37,7 @@ export class ConsensusService {
     agentId: string,
     claimedOutcome: 'yes' | 'no' | 'void',
     stakeSats: number
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; consensus_closes_at: string }> {
     // Validate market is in RESOLVING state and uses consensus
     const market = await this.db.get(
       `SELECT state, resolution_mechanism, consensus_min_stake_sats, consensus_window_hours, consensus_opened_at
@@ -51,11 +51,26 @@ export class ConsensusService {
       throw new Error(`Minimum stake is ${market.consensus_min_stake_sats || 1000} sats`)
     }
 
-    // Check window still open
-    if (market.consensus_opened_at) {
-      const windowEnd = new Date(market.consensus_opened_at)
-      windowEnd.setHours(windowEnd.getHours() + (market.consensus_window_hours || 24))
-      if (new Date() > windowEnd) throw new Error('Consensus window has closed')
+    const now = new Date()
+
+    // Set or enforce consensus window
+    let closesAt: Date
+    if (market.consensus_opened_at && market.consensus_closes_at) {
+      // Window already started — enforce deadline
+      closesAt = new Date(market.consensus_closes_at)
+      if (now > closesAt) throw new Error(`Consensus window has closed (ended ${closesAt.toISOString()})`)
+    } else {
+      // First claim — open the window now
+      const windowHours = market.consensus_window_hours || 24
+      closesAt = new Date(now.getTime() + windowHours * 60 * 60 * 1000)
+      await this.db.run(
+        `UPDATE markets SET consensus_opened_at = ?, consensus_closes_at = ? WHERE id = ?`,
+        [
+          now.toISOString().slice(0, 19).replace('T', ' '),
+          closesAt.toISOString().slice(0, 19).replace('T', ' '),
+          marketId
+        ]
+      )
     }
 
     // Check agent balance
@@ -75,7 +90,7 @@ export class ConsensusService {
       [id, marketId, agentId, claimedOutcome, stakeSats]
     )
 
-    return { id }
+    return { id, consensus_closes_at: closesAt.toISOString() }
   }
 
   /**

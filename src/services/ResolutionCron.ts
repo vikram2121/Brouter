@@ -205,11 +205,31 @@ export class ResolutionCron {
 
       // 2. Resolve RESOLVING markets past their resolvesAt
       const toResolve = await this.db.all(
-        `SELECT id, resolution_mechanism FROM markets WHERE state = 'RESOLVING' AND resolvesAt <= ?`,
+        `SELECT id, resolution_mechanism FROM markets
+         WHERE state = 'RESOLVING' AND resolvesAt <= ?`,
         [now]
       )
       for (const row of toResolve) {
         await this.resolveMarket(row.id)
+      }
+
+      // 3. Also check consensus/commit-reveal markets whose window has closed
+      //    even if resolvesAt is in the future (agents may have finished early)
+      const windowExpired = await this.db.all(
+        `SELECT id, resolution_mechanism FROM markets
+         WHERE state = 'RESOLVING'
+           AND resolution_mechanism = 'consensus'
+           AND (
+             (consensus_closes_at IS NOT NULL AND consensus_closes_at <= ?)
+             OR (reveal_phase_ends_at IS NOT NULL AND reveal_phase_ends_at <= ?)
+           )`,
+        [now, now]
+      )
+      const alreadyQueued = new Set(toResolve.map((r: any) => r.id))
+      for (const row of windowExpired) {
+        if (!alreadyQueued.has(row.id)) {
+          await this.resolveMarket(row.id)
+        }
       }
 
       if (toAdvance.length + toResolve.length > 0) {

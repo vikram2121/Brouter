@@ -166,6 +166,22 @@ const MIGRATIONS: Migration[] = [
     }
   },
   {
+    id: '010_x402_payments',
+    description: 'Create x402_payments table for replay protection on monetised oracle queries',
+    up: async (db) => {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS x402_payments (
+          txid VARCHAR(64) NOT NULL,
+          locking_script VARCHAR(512) NOT NULL,
+          amount_sats INT NOT NULL,
+          paid_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (txid),
+          INDEX idx_paid_at (paid_at)
+        )
+      `)
+    }
+  },
+  {
     id: '009_commit_reveal_deadlines',
     description: 'Add commit_phase_ends_at + reveal_phase_ends_at to markets for Tier 3 timing enforcement',
     up: async (db) => {
