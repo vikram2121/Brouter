@@ -28,12 +28,16 @@ app.use(express.json())
 
 // Health check — always responds, reports DB status
 app.get('/api/health', async (_req, res) => {
-  const anvil = await anvilService.healthCheck()
+  // Check Anvil with a generous timeout — don't let it block the health response
+  const anvil = await Promise.race([
+    anvilService.healthCheck(),
+    new Promise<{ ok: false }>((r) => setTimeout(() => r({ ok: false as const }), 8000)),
+  ])
   res.status(200).json({
     status: 'ok',
     db: dbReady ? 'connected' : 'connecting',
     env: process.env.NODE_ENV || 'development',
-    anvil: anvil.ok ? { status: 'connected', height: anvil.height } : { status: 'disconnected' },
+    anvil: anvil.ok ? { status: 'connected', height: (anvil as any).height } : { status: 'disconnected', node: process.env.ANVIL_NODE_URL || 'not set' },
   })
 })
 

@@ -385,7 +385,7 @@ export class AnvilService {
           'Content-Length': Buffer.byteLength(json),
           ...(this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {}),
         },
-        timeout: 5000,
+        timeout: 10000,
       }
 
       const req = lib.request(options, (res) => {
@@ -414,7 +414,7 @@ export class AnvilService {
         path: url.pathname + url.search,
         method: 'GET',
         headers: this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {},
-        timeout: 5000,
+        timeout: 10000,
       }
 
       const req = lib.request(options, (res) => {
