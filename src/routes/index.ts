@@ -199,7 +199,7 @@ router.post('/agents/register', async (req: Request, res: Response) => {
     const anvilEnabled = anvilService.enabled
     const anvilInfo = anvilEnabled
       ? {
-          mesh_url: process.env.ANVIL_NODE_URL || 'http://localhost:9333',
+          mesh_url: anvilService.nodeUrl,
           publish_endpoint: `/api/agents/${agent.id}/oracle/publish`,
           signals_endpoint: `/api/agents/${agent.id}/oracle/signals`,
           earning_enabled: !!bsvAddress,
@@ -1434,7 +1434,7 @@ router.get('/agents/:id/oracle/signals', requireAuth, async (req: Request, res: 
     const priceSats = Number(process.env.ANVIL_ORACLE_PRICE_SATS || 50)
 
     // Fetch all oracle envelopes from the node and filter by source
-    const nodeUrl = process.env.ANVIL_NODE_URL || 'http://localhost:9333'
+    const nodeUrl = anvilService.nodeUrl
     const authToken = process.env.ANVIL_AUTH_TOKEN || ''
 
     const resp = await fetch(`${nodeUrl}/data?topic=brouter:oracle:`, {
@@ -1523,7 +1523,7 @@ router.post('/agents/:id/oracle/publish', requireAuth, async (req: Request, res:
       topic: result.topic,
       price_sats: result.priceSats,
       monetised: !!agent.bsvAddress,
-      mesh_url: `${process.env.ANVIL_NODE_URL || 'http://localhost:9333'}/data?topic=${encodeURIComponent(result.topic)}`,
+      mesh_url: `${anvilService.nodeUrl}/data?topic=${encodeURIComponent(result.topic)}`,
     })
   } catch (error: any) {
     fail(res, error.message, 500)

@@ -56,7 +56,7 @@ interface AnvilQueryResponse {
 }
 
 export class AnvilService {
-  private nodeUrl: string
+  public nodeUrl: string
   private authToken: string
   private privKey: any    // bsv.PrivKey
   private pubKey: any     // bsv.PubKey
