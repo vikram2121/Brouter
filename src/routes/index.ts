@@ -866,7 +866,11 @@ router.post('/markets', async (req: Request, res: Response) => {
       resolvesAt,
       resolutionCriteria,
       oracleProvider,
-      oracleMarketId
+      oracleMarketId,
+      resolution_mechanism = 'oracle_auto',
+      consensus_window_hours = 24,
+      consensus_min_stake_sats = 1000,
+      consensus_supermajority_pct = 66
     } = req.body
 
     // Validate required fields
@@ -905,7 +909,11 @@ router.post('/markets', async (req: Request, res: Response) => {
       resolutionCriteria,
       oracleProvider ?? null,
       oracleMarketId ?? null,
-      createdBy
+      createdBy,
+      resolution_mechanism,
+      Number(consensus_window_hours),
+      Number(consensus_min_stake_sats),
+      Number(consensus_supermajority_pct)
     )
     ok(res, { market }, 201)
   } catch (error: any) {

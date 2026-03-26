@@ -40,7 +40,7 @@ export class ConsensusService {
   ): Promise<{ id: string }> {
     // Validate market is in RESOLVING state and uses consensus
     const market = await this.db.get(
-      `SELECT state, resolution_mechanism, consensus_min_stake_sats, consensus_window_hours, consensus_started_at
+      `SELECT state, resolution_mechanism, consensus_min_stake_sats, consensus_window_hours, consensus_opened_at
        FROM markets WHERE id = ?`,
       [marketId]
     )
@@ -52,8 +52,8 @@ export class ConsensusService {
     }
 
     // Check window still open
-    if (market.consensus_started_at) {
-      const windowEnd = new Date(market.consensus_started_at)
+    if (market.consensus_opened_at) {
+      const windowEnd = new Date(market.consensus_opened_at)
       windowEnd.setHours(windowEnd.getHours() + (market.consensus_window_hours || 24))
       if (new Date() > windowEnd) throw new Error('Consensus window has closed')
     }

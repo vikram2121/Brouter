@@ -44,7 +44,11 @@ export class MarketService {
     resolutionCriteria: string,
     oracleProvider: string | null = null,
     oracleMarketId: string | null = null,
-    createdBy: string | null = null
+    createdBy: string | null = null,
+    resolutionMechanism: 'oracle_auto' | 'consensus' | 'manual' = 'oracle_auto',
+    consensusWindowHours: number = 24,
+    consensusMinStakeSats: number = 1000,
+    consensusSupermajorityPct: number = 66
   ): Promise<Market> {
     // Validation
     if (!title?.trim()) throw new Error('title required')
@@ -76,9 +80,10 @@ export class MarketService {
         id, title, description, domain, tier, state, proposedAt,
         closesAt, resolvesAt, minDurationHours, lockMinutesBeforeClose,
         resolutionCriteria, oracleProvider, oracleMarketId,
+        resolution_mechanism, consensus_window_hours, consensus_min_stake_sats, consensus_supermajority_pct,
         totalYesSats, totalNoSats, agentCount,
         createdBy, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`,
       [
         id,
         title.trim(),
@@ -94,6 +99,10 @@ export class MarketService {
         resolutionCriteria.trim(),
         oracleProvider?.trim() ?? null,
         oracleMarketId?.trim() ?? null,
+        resolutionMechanism,
+        consensusWindowHours,
+        consensusMinStakeSats,
+        consensusSupermajorityPct,
         createdBy ?? null,
         nowStr,
         nowStr
