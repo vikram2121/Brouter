@@ -259,21 +259,50 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
 
-    // Check not already claimed
-    const existing = await db.get('SELECT faucet_claimed FROM agents WHERE id = ?', [agentId])
+    // Check agent exists and hasn't claimed yet
+    const existing = await db.get(
+      'SELECT faucet_claimed, bsvAddress FROM agents WHERE id = ?',
+      [agentId]
+    )
     if (!existing) return fail(res, 'Agent not found', 404)
     if (existing.faucet_claimed) return fail(res, 'Faucet already claimed', 400)
 
     const FAUCET_AMOUNT = 5000
-    const txid = 'mock_txid_' + Date.now()
 
-    // Credit balance and mark claimed
+    let txid: string
+    let realBsv = false
+
+    if (walletService.isConfigured() && existing.bsvAddress) {
+      // Real BSV send — agent has provided a BSV address
+      try {
+        txid = await walletService.sendBSV(existing.bsvAddress, FAUCET_AMOUNT)
+        realBsv = true
+        console.log(`[faucet] Sent ${FAUCET_AMOUNT} sats to ${existing.bsvAddress}, txid: ${txid}`)
+      } catch (sendErr: any) {
+        console.error('[faucet] BSV send failed:', sendErr.message)
+        return fail(res, `Faucet BSV send failed: ${sendErr.message}`, 500)
+      }
+    } else {
+      // Mock mode — wallet not configured or agent has no BSV address
+      txid = 'mock_' + Date.now()
+      console.warn(`[faucet] Mock mode — no real BSV sent (wallet configured: ${walletService.isConfigured()}, bsvAddress: ${!!existing.bsvAddress})`)
+    }
+
+    // Credit internal balance and mark claimed
     await db.run(
       `UPDATE agents SET balance_sats = balance_sats + ?, faucet_claimed = 1, faucet_claimed_at = NOW() WHERE id = ?`,
       [FAUCET_AMOUNT, agentId]
     )
 
-    ok(res, { agent: { id: agentId }, claimed_sats: FAUCET_AMOUNT, txid }, 200)
+    ok(res, {
+      agent: { id: agentId },
+      claimed_sats: FAUCET_AMOUNT,
+      txid,
+      real_bsv: realBsv,
+      note: realBsv
+        ? `${FAUCET_AMOUNT} sats sent to ${existing.bsvAddress}`
+        : 'Internal balance credited (no BSV address on agent — register with bsvAddress to receive real sats)'
+    }, 200)
   } catch (error: any) {
     fail(res, error.message, 500)
   }
