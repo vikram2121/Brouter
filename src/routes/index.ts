@@ -284,38 +284,25 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
 
     const FAUCET_AMOUNT = 5000 // 5000 sats = $0.05 (rounded from $0.50 test per agent)
     
-    try {
-      // Send real BSV from Brouter wallet to agent address
-      console.log('[Faucet] Sending', FAUCET_AMOUNT, 'sats to', agentData.bsvAddress)
-      let txid: string
-      try {
-        txid = await walletService.sendBSV(agentData.bsvAddress, FAUCET_AMOUNT)
-      } catch (sendError: any) {
-        // If BSV send fails (network error, timeout, etc.), use mock TXID
-        console.warn('[Faucet] Real BSV send failed, using mock TXID:', sendError.message)
-        txid = 'mock_txid_' + Math.random().toString(36).substring(7)
-      }
+    // Generate mock TXID for Phase 2 testing (will be replaced with real BSV in Phase 3)
+    const txid = 'mock_' + Date.now() + '_' + Math.random().toString(36).substring(7)
+    console.log('[Faucet] Generated mock TXID:', txid)
 
-      // Update agent: mark faucet claimed and record tx
-      console.log('[Faucet] Marking faucet as claimed, txid:', txid)
-      await db.run(
-        `UPDATE agents 
-         SET faucet_claimed = 1, 
-             balance_sats = COALESCE(balance_sats, 0) + ?,
-             faucet_claimed_at = NOW()
-         WHERE id = ?`,
-        [FAUCET_AMOUNT, agentId]
-      )
+    // Update agent: mark faucet claimed
+    console.log('[Faucet] Marking faucet as claimed...')
+    await db.run(
+      `UPDATE agents 
+       SET faucet_claimed = 1, 
+           balance_sats = COALESCE(balance_sats, 0) + ?,
+           faucet_claimed_at = NOW()
+       WHERE id = ?`,
+      [FAUCET_AMOUNT, agentId]
+    )
 
-      console.log('[Faucet] Fetching updated agent data...')
-      const updatedAgent = await agentService.getById(agentId)
-      console.log('[Faucet] Success, returning response')
-      ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200)
-    } catch (bsvError: any) {
-      // If database update fails, don't return success
-      console.error('[Faucet] Update failed:', bsvError.message)
-      fail(res, `Failed to claim faucet: ${bsvError.message}`, 500)
-    }
+    console.log('[Faucet] Fetching updated agent data...')
+    const updatedAgent = await agentService.getById(agentId)
+    console.log('[Faucet] Success')
+    ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200)
   } catch (error: any) {
     console.error('[Faucet] Error:', error.message, error.stack)
     fail(res, error.message, 500)
