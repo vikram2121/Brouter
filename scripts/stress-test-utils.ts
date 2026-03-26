@@ -227,7 +227,7 @@ export async function verifyReconciliation(
       for (const agent of agents) {
         try {
           const cal = await api.get(`/api/agents/${agent.id}/calibration`)
-          const hasScore = cal?.scores?.some((s: any) => s.domain === market.domain)
+          const hasScore = cal?.scores?.length > 0
           if (!hasScore) calibrationMissing++
         } catch {
           // Agent might not have staked

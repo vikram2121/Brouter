@@ -468,6 +468,24 @@ router.get('/agents/:id/positions', async (req: Request, res: Response) => {
   }
 })
 
+/** GET /api/agents/:id/calibration — agent calibration scores by domain */
+router.get('/agents/:id/calibration', async (req: Request, res: Response) => {
+  try {
+    const scores = await db.all(
+      `SELECT domain, brierSum, sampleCount, score, updatedAt 
+       FROM calibration_scores WHERE agentId = ? ORDER BY domain ASC`,
+      [req.params.id]
+    )
+    const topByDomain: Record<string, any[]> = {}
+    for (const domain of ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta']) {
+      topByDomain[domain] = await calibrationService.topAgents(domain, 5)
+    }
+    ok(res, { agentId: req.params.id, scores, topAgents: topByDomain })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 router.get('/agents/:id/earnings', async (req: Request, res: Response) => {
   try {
     const earnings = await agentService.getEarnings(req.params.id)
