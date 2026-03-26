@@ -226,8 +226,9 @@ async function runVolumeTest() {
     markets.map((market) => {
       const opStart = Date.now()
       return api
-        .get(`/api/signals?market_id=${market.id}`)
-        .then((signals) => {
+        .get(`/api/markets/${market.id}/signals`)
+        .then((data: any) => {
+          const signals = data?.signals || []
           if (!signals || signals.length === 0) return
           return Promise.all(
             signals.slice(0, 2).map((signal: any) =>
@@ -236,7 +237,7 @@ async function runVolumeTest() {
                   `/api/signals/${signal.id}/vote`,
                   {
                     direction: Math.random() > 0.5 ? 'up' : 'down',
-                    amount_sats: randomBetween(25, 100)
+                    amountSats: randomBetween(100, 300)
                   },
                   { headers: { Authorization: `Bearer ${agent.token}` } }
                 )

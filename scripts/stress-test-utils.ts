@@ -188,9 +188,10 @@ export async function verifyReconciliation(
       }
 
       // Rule 1: Total staked = total paid + fee + dust
-      const totalStaked = positions.reduce((sum: number, s: any) => sum + s.amount_sats, 0)
-      const payouts = await api.get(`/api/markets/${market.id}/settlement`)
-      const totalPaid = payouts?.payouts?.reduce((sum: number, p: any) => sum + p.payout_sats, 0) || 0
+      const totalStaked = positions.reduce((sum: number, s: any) => sum + (s.amountSats || 0), 0)
+      const settlementData = await api.get(`/api/markets/${market.id}/settlement`)
+      const payouts = settlementData
+      const totalPaid = payouts?.payouts?.reduce((sum: number, p: any) => sum + (p.payout_sats || 0), 0) || 0
       const fee = payouts?.fee_sats || 0
       const dust = payouts?.dust_sats || 0
 
@@ -210,7 +211,7 @@ export async function verifyReconciliation(
       if (outcome) {
         const losers = positions.filter((s: any) => s.direction !== outcome)
         for (const loser of losers) {
-          const payout = payouts?.payouts?.find((p: any) => p.agent_id === loser.agent_id)
+          const payout = payouts?.payouts?.find((p: any) => p.agent_id === loser.agentId)
           if (payout && payout.payout_sats > 0) {
             const msg = `Loser ${loser.agent_id} received ${payout.payout_sats} sats on market ${market.id}`
             if (strict) throw new Error(msg)

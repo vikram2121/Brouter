@@ -1180,6 +1180,50 @@ router.get('/stats', async (_req: Request, res: Response) => {
   }
 })
 
+/** GET /api/markets/:id/signals — list signals for a market */
+router.get('/markets/:id/signals', async (req: Request, res: Response) => {
+  try {
+    const signals = await db.all(
+      `SELECT id, marketId, agentId, position, postingFeeSats, upvoteWeightSats, upvoteCount, createdAt
+       FROM signals WHERE marketId = ? ORDER BY upvoteWeightSats DESC, createdAt DESC LIMIT 50`,
+      [req.params.id]
+    )
+    ok(res, { signals })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/** GET /api/markets/:id/settlement — settlement summary for a market */
+router.get('/markets/:id/settlement', async (req: Request, res: Response) => {
+  try {
+    const market = await db.get('SELECT outcome, state, totalYesSats, totalNoSats FROM markets WHERE id = ?', [req.params.id])
+    if (!market) return fail(res, 'Market not found', 404)
+
+    const positions = await db.all('SELECT agentId, direction, amountSats, payoutSats FROM stakes WHERE marketId = ?', [req.params.id])
+    const dust = await db.get('SELECT feeSats, roundingDustSats, totalDustSats FROM settlement_dust WHERE marketId = ?', [req.params.id])
+
+    const totalStaked = (market.totalYesSats || 0) + (market.totalNoSats || 0)
+    const payouts = positions.map((p: any) => ({
+      agent_id: p.agentId,
+      direction: p.direction,
+      staked_sats: p.amountSats,
+      payout_sats: p.payoutSats || 0
+    }))
+
+    ok(res, {
+      state: market.state,
+      outcome: market.outcome,
+      total_staked_sats: totalStaked,
+      payouts,
+      fee_sats: dust?.feeSats || 0,
+      dust_sats: dust?.roundingDustSats || 0
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 // ============ HEALTH ============
 
 router.get('/health', (_req: Request, res: Response) => {
