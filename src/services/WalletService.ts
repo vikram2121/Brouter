@@ -141,7 +141,7 @@ export class WalletService {
       txBuilder.inputFromPubKeyHash(
         txHashBuf,
         u.vout,
-        new bsv.TxOut(bsv.Bn(u.satoshis), scriptPubKey)
+        bsv.TxOut.fromProperties(new bsv.Bn(u.satoshis), scriptPubKey)
       )
     }
 
