@@ -164,6 +164,24 @@ const MIGRATIONS: Migration[] = [
         )
       `)
     }
+  },
+  {
+    id: '009_commit_reveal_deadlines',
+    description: 'Add commit_phase_ends_at + reveal_phase_ends_at to markets for Tier 3 timing enforcement',
+    up: async (db) => {
+      const cols = await db.all(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'markets'
+         AND COLUMN_NAME IN ('commit_phase_ends_at', 'reveal_phase_ends_at')`
+      )
+      const existing = cols.map((c: any) => c.COLUMN_NAME)
+      if (!existing.includes('commit_phase_ends_at')) {
+        await db.run(`ALTER TABLE markets ADD COLUMN commit_phase_ends_at DATETIME NULL`)
+      }
+      if (!existing.includes('reveal_phase_ends_at')) {
+        await db.run(`ALTER TABLE markets ADD COLUMN reveal_phase_ends_at DATETIME NULL`)
+      }
+    }
   }
 ]
 

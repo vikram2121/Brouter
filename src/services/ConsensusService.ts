@@ -87,11 +87,12 @@ export class ConsensusService {
     agentId: string,
     commitmentHash: string,
     stakeSats: number
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; commitPhaseEndsAt: string; revealPhaseEndsAt: string }> {
     if (!/^[a-f0-9]{64}$/.test(commitmentHash)) throw new Error('commitmentHash must be 64-char hex SHA256')
 
     const market = await this.db.get(
-      `SELECT state, resolution_mechanism, consensus_min_stake_sats FROM markets WHERE id = ?`,
+      `SELECT state, resolution_mechanism, consensus_min_stake_sats,
+              commit_phase_ends_at, reveal_phase_ends_at FROM markets WHERE id = ?`,
       [marketId]
     )
     if (!market) throw new Error('Market not found')
@@ -101,6 +102,29 @@ export class ConsensusService {
     }
     if (stakeSats < (market.consensus_min_stake_sats || 1000)) {
       throw new Error(`Minimum stake is ${market.consensus_min_stake_sats || 1000} sats`)
+    }
+
+    // Enforce commit phase deadline (default: 12h from now if not set)
+    const now = new Date()
+    let commitPhaseEndsAt: Date
+    let revealPhaseEndsAt: Date
+
+    if (market.commit_phase_ends_at) {
+      commitPhaseEndsAt = new Date(market.commit_phase_ends_at)
+      if (now > commitPhaseEndsAt) {
+        throw new Error(`Commit phase has closed (ended ${commitPhaseEndsAt.toISOString()})`)
+      }
+      revealPhaseEndsAt = new Date(market.reveal_phase_ends_at)
+    } else {
+      // First commit — set the timing window for this market
+      commitPhaseEndsAt = new Date(now.getTime() + 12 * 60 * 60 * 1000)  // 12h to commit
+      revealPhaseEndsAt = new Date(now.getTime() + 24 * 60 * 60 * 1000)  // 24h to reveal
+      await this.db.run(
+        `UPDATE markets SET commit_phase_ends_at = ?, reveal_phase_ends_at = ? WHERE id = ?`,
+        [commitPhaseEndsAt.toISOString().slice(0, 19).replace('T', ' '),
+         revealPhaseEndsAt.toISOString().slice(0, 19).replace('T', ' '),
+         marketId]
+      )
     }
 
     const agent = await this.db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
@@ -117,12 +141,16 @@ export class ConsensusService {
       [id, marketId, agentId, stakeSats, commitmentHash]
     )
 
-    return { id }
+    return {
+      id,
+      commitPhaseEndsAt: commitPhaseEndsAt.toISOString(),
+      revealPhaseEndsAt: revealPhaseEndsAt.toISOString()
+    }
   }
 
   /**
    * Reveal a commit (Tier 3 — phase 2 of commit-reveal).
-   * Agent reveals their outcome + salt. Hash must match commitment.
+   * Reveals only accepted within the reveal window (after commit phase closes, before reveal deadline).
    */
   async revealCommit(
     marketId: string,
@@ -130,6 +158,26 @@ export class ConsensusService {
     outcome: 'yes' | 'no' | 'void',
     salt: string
   ): Promise<void> {
+    const market = await this.db.get(
+      `SELECT commit_phase_ends_at, reveal_phase_ends_at FROM markets WHERE id = ?`,
+      [marketId]
+    )
+    if (!market) throw new Error('Market not found')
+
+    const now = new Date()
+
+    // Must be past commit phase before revealing
+    if (market.commit_phase_ends_at && now < new Date(market.commit_phase_ends_at)) {
+      const endsAt = new Date(market.commit_phase_ends_at).toISOString()
+      throw new Error(`Reveal phase not open yet — commit phase closes at ${endsAt}`)
+    }
+
+    // Must be within reveal window
+    if (market.reveal_phase_ends_at && now > new Date(market.reveal_phase_ends_at)) {
+      const endsAt = new Date(market.reveal_phase_ends_at).toISOString()
+      throw new Error(`Reveal phase has closed (ended ${endsAt})`)
+    }
+
     const claim = await this.db.get(
       `SELECT id, commitment_hash, revealed_at FROM resolution_claims 
        WHERE market_id = ? AND agent_id = ?`,
@@ -157,13 +205,18 @@ export class ConsensusService {
    */
   async tally(marketId: string): Promise<ConsensusResult> {
     const market = await this.db.get(
-      `SELECT consensus_supermajority_pct FROM markets WHERE id = ?`,
+      `SELECT consensus_supermajority_pct, reveal_phase_ends_at FROM markets WHERE id = ?`,
       [marketId]
     )
     const supermajorityPct = market?.consensus_supermajority_pct || 66
 
+    // For commit-reveal markets: only count valid reveals; ignore uncommitted 'void' placeholders
+    const isCommitReveal = !!market?.reveal_phase_ends_at
     const claims = await this.db.all(
-      `SELECT claimed_outcome, stake_sats FROM resolution_claims WHERE market_id = ?`,
+      isCommitReveal
+        ? `SELECT claimed_outcome, stake_sats FROM resolution_claims
+           WHERE market_id = ? AND reveal_valid = 1`
+        : `SELECT claimed_outcome, stake_sats FROM resolution_claims WHERE market_id = ?`,
       [marketId]
     )
 

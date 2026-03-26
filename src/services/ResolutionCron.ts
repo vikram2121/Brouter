@@ -54,7 +54,8 @@ export class ResolutionCron {
   } | null> {
     const marketRow = await this.db.get(
       `SELECT id, state, resolution_mechanism, oracleProvider, oracleMarketId,
-              consensus_window_hours, consensus_opened_at
+              consensus_window_hours, consensus_opened_at,
+              commit_phase_ends_at, reveal_phase_ends_at
        FROM markets WHERE id = ?`,
       [marketId]
     )
@@ -88,22 +89,38 @@ export class ResolutionCron {
 
     // ── TIER 2/3: Consensus ─────────────────────────────────────────────────
     if (mechanism === 'consensus') {
+      const isCommitReveal = !!marketRow.reveal_phase_ends_at
+      const now = new Date()
+
+      // For commit-reveal: wait until reveal phase has ended before tallying
+      if (isCommitReveal) {
+        const revealEnd = new Date(marketRow.reveal_phase_ends_at)
+        if (now < revealEnd) {
+          return { outcome: 'void', method: 'void_fallback', skipped: 'reveal_phase_open' }
+        }
+      }
+
       const tally = await this.consensusService.tally(marketId)
 
       if (tally.achieved) {
         outcome = tally.outcome as 'yes' | 'no' | 'void'
-        evidenceNote = `Consensus: YES ${tally.yesSats} sats, NO ${tally.noSats} sats (${tally.supermajorityPct}% threshold)`
+        evidenceNote = isCommitReveal
+          ? `Commit-reveal: YES ${tally.yesSats} sats, NO ${tally.noSats} sats (${tally.supermajorityPct}% threshold, valid reveals only)`
+          : `Consensus: YES ${tally.yesSats} sats, NO ${tally.noSats} sats (${tally.supermajorityPct}% threshold)`
         method = 'consensus'
       } else {
-        // Check if consensus window has closed
-        const windowClosed = this.isConsensusWindowClosed(marketRow)
+        // Check if window has closed (Tier 2) or reveal phase ended (Tier 3)
+        const windowClosed = isCommitReveal
+          ? now > new Date(marketRow.reveal_phase_ends_at)
+          : this.isConsensusWindowClosed(marketRow)
+
         if (windowClosed) {
-          // No supermajority by deadline → resolve void
           outcome = 'void'
-          evidenceNote = `Consensus window expired with no supermajority. YES: ${tally.yesSats} sats, NO: ${tally.noSats} sats`
+          evidenceNote = isCommitReveal
+            ? `Commit-reveal expired: no supermajority among valid reveals. YES: ${tally.yesSats} sats, NO: ${tally.noSats} sats`
+            : `Consensus window expired with no supermajority. YES: ${tally.yesSats} sats, NO: ${tally.noSats} sats`
           method = 'void_fallback'
         } else {
-          // Window still open — skip
           return { outcome: 'void', method: 'void_fallback', skipped: 'consensus_window_open' }
         }
       }
