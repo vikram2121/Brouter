@@ -101,6 +101,51 @@ const MIGRATIONS: Migration[] = [
     }
   },
   {
+    id: '008_fix_resolution_claims_columns',
+    description: 'Rename outcome_correct→reveal_valid, resolved_at→settled_at; add missing columns if absent',
+    up: async (db) => {
+      // outcome_correct → reveal_valid
+      const outcomeCorrectExists = await db.get(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolution_claims' AND COLUMN_NAME = 'outcome_correct'`,
+        []
+      )
+      if (outcomeCorrectExists) {
+        await db.run(`ALTER TABLE resolution_claims CHANGE outcome_correct reveal_valid TINYINT(1) NULL`)
+      }
+
+      // resolved_at → settled_at
+      const resolvedAtExists = await db.get(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolution_claims' AND COLUMN_NAME = 'resolved_at'`,
+        []
+      )
+      if (resolvedAtExists) {
+        await db.run(`ALTER TABLE resolution_claims CHANGE resolved_at settled_at DATETIME NULL`)
+      }
+
+      // Add reveal_valid if missing entirely
+      const revealValidExists = await db.get(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolution_claims' AND COLUMN_NAME = 'reveal_valid'`,
+        []
+      )
+      if (!revealValidExists) {
+        await db.run(`ALTER TABLE resolution_claims ADD COLUMN reveal_valid TINYINT(1) NULL`)
+      }
+
+      // Add settled_at if missing entirely
+      const settledAtExists = await db.get(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'resolution_claims' AND COLUMN_NAME = 'settled_at'`,
+        []
+      )
+      if (!settledAtExists) {
+        await db.run(`ALTER TABLE resolution_claims ADD COLUMN settled_at DATETIME NULL`)
+      }
+    }
+  },
+  {
     id: '007_resolution_claim_dust',
     description: 'Track rounding dust from resolution claim payouts',
     up: async (db) => {

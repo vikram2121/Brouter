@@ -10,13 +10,14 @@ import mysql from 'mysql2/promise'
 
 async function main() {
   const host = process.env.DB_HOST || 'localhost'
+  const port = parseInt(process.env.DB_PORT || '3306', 10)
   const user = process.env.DB_USER || 'root'
   const password = process.env.DB_PASSWORD || ''
   const database = process.env.DB_NAME || 'brouter'
 
-  console.log(`\n🔍 Verifying migrations on ${host}/${database}...\n`)
+  console.log(`\n🔍 Verifying migrations on ${host}:${port}/${database}...\n`)
 
-  const conn = await mysql.createConnection({ host, user, password, database })
+  const conn = await mysql.createConnection({ host, port, user, password, database })
   let passed = 0
   let failed = 0
 
@@ -51,7 +52,7 @@ async function main() {
     assert(colMap['resolution_mechanism']?.COLUMN_DEFAULT === 'oracle_auto', "resolution_mechanism defaults to 'oracle_auto'")
     assert(colMap['consensus_window_hours']?.COLUMN_DEFAULT === '24', 'consensus_window_hours defaults to 24')
     assert(colMap['consensus_min_stake_sats']?.COLUMN_DEFAULT === '1000', 'consensus_min_stake_sats defaults to 1000')
-    assert(colMap['consensus_supermajority_pct']?.COLUMN_DEFAULT === '66', 'consensus_supermajority_pct defaults to 66')
+    assert(parseFloat(colMap['consensus_supermajority_pct']?.COLUMN_DEFAULT) === 66, 'consensus_supermajority_pct defaults to 66')
     assert(colMap['oracle_verified']?.COLUMN_DEFAULT === '0', 'oracle_verified defaults to 0')
 
     // ── Tables exist ──────────────────────────────────────────────────────────
