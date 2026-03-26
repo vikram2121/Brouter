@@ -12,6 +12,8 @@ import { MarketService } from '../services/MarketService'
 import { SettlementEngine, type SettlementConfig } from '../services/SettlementEngine'
 import { SignalPoolService } from '../services/SignalPoolService'
 import { CalibrationService } from '../services/CalibrationService'
+import { OracleResolver } from '../services/OracleResolver'
+import { ConsensusService } from '../services/ConsensusService'
 import { walletService } from '../services/WalletService'
 
 // Initialize services
@@ -23,6 +25,8 @@ const agentService = new AgentService(db)
 const marketService = new MarketService(db)
 const signalPoolService = new SignalPoolService(db)
 const calibrationService = new CalibrationService(db)
+const oracleResolver = new OracleResolver()
+const consensusService = new ConsensusService(db)
 
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig: SettlementConfig = {
@@ -1031,61 +1035,96 @@ router.post('/markets/:id/start-resolution', async (req: Request, res: Response)
   }
 })
 
-/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required)
- *  
- * Request body:
- *   outcome: 'yes' | 'no' | 'void' (required)
- *   evidenceUrl: string (optional, e.g., https://polymarket.com/market/0x1234abcd)
- *   evidenceNote: string (optional, e.g., "Market settled YES at 18:30 UTC. Screenshot archived.")
+/**
+ * POST /api/markets/:id/resolve
  * 
- * Evidence fields enable public accountability: any user can click the link and verify the resolution.
- * Closes the trust gap between manual resolution and automated verification (Phase 2.5).
+ * Three-tier resolution (Phase 3):
+ *   Tier 1 (oracle_auto): Query Polymarket/Betfair first — auto-settle if resolved
+ *   Tier 2 (consensus):   Outcome determined by stake-weighted consensus window
+ *   Tier 3 (manual):      Fallback — resolver supplies outcome manually with evidence
+ * 
+ * Body: { outcome?, evidenceUrl?, evidenceNote? }
+ * - outcome required for manual/consensus tiers
+ * - outcome auto-populated from oracle for oracle_auto tier
  */
 router.post('/markets/:id/resolve', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { outcome, evidenceUrl, evidenceNote } = req.body
-    if (!['yes', 'no', 'void'].includes(outcome)) return fail(res, 'outcome must be yes, no, or void')
-    
-    // Validate evidence URL if provided
-    if (evidenceUrl) {
-      try {
-        new URL(evidenceUrl)
-      } catch {
-        return fail(res, 'evidenceUrl must be a valid URL', 400)
+    let { outcome, evidenceUrl, evidenceNote } = req.body
+    const resolvedBy = (req as any).agentId
+    const marketId = req.params.id
+
+    // Fetch market to determine resolution path
+    const marketRow = await db.get(
+      `SELECT resolution_mechanism, oracleProvider, oracleMarketId FROM markets WHERE id = ?`,
+      [marketId]
+    )
+    if (!marketRow) return fail(res, 'Market not found', 404)
+
+    const mechanism = marketRow.resolution_mechanism || 'oracle_auto'
+
+    // ── TIER 1: Oracle-first ──────────────────────────────────────────────────
+    let oracleVerified = false
+    if (mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
+      const oracleResult = await oracleResolver.resolve(marketRow.oracleProvider, marketRow.oracleMarketId)
+      if (oracleResult?.resolved) {
+        outcome = oracleResult.outcome
+        evidenceUrl = evidenceUrl || oracleResult.evidence
+        evidenceNote = evidenceNote || `Auto-resolved by ${oracleResult.source} oracle`
+        oracleVerified = true
       }
+      // If oracle hasn't resolved yet, fall through to manual (outcome from body)
+    }
+
+    // ── TIER 2: Consensus ─────────────────────────────────────────────────────
+    if (mechanism === 'consensus') {
+      const tally = await consensusService.tally(marketId)
+      if (!tally.achieved) {
+        // Window may still be open, or no supermajority — don't settle yet
+        if (tally.claimsCount === 0) return fail(res, 'No consensus claims submitted yet', 400)
+        return fail(res, `No supermajority achieved (${tally.supermajorityPct}% required). Market will resolve VOID.`, 400)
+      }
+      outcome = tally.outcome
+      evidenceNote = evidenceNote || `Consensus: YES ${tally.yesSats} sats, NO ${tally.noSats} sats (${tally.supermajorityPct}% threshold)`
+    }
+
+    // ── Validate outcome ──────────────────────────────────────────────────────
+    if (!outcome || !['yes', 'no', 'void'].includes(outcome)) {
+      return fail(res, 'outcome must be yes, no, or void', 400)
+    }
+
+    if (evidenceUrl) {
+      try { new URL(evidenceUrl) } catch { return fail(res, 'evidenceUrl must be a valid URL', 400) }
       if (evidenceUrl.length > 512) return fail(res, 'evidenceUrl must be <= 512 chars', 400)
     }
-    
-    if (evidenceNote && evidenceNote.length > 1000) {
-      return fail(res, 'evidenceNote must be <= 1000 chars', 400)
-    }
+    if (evidenceNote && evidenceNote.length > 1000) return fail(res, 'evidenceNote must be <= 1000 chars', 400)
 
-    const resolvedBy = (req as any).agentId
+    // ── Settle market ─────────────────────────────────────────────────────────
+    const market = await marketService.resolve(marketId, outcome, resolvedBy)
 
-    // 1. Update market state: RESOLVING → SETTLED
-    const market = await marketService.resolve(req.params.id, outcome, resolvedBy)
-
-    // 1b. Store evidence (if provided)
-    if (evidenceUrl || evidenceNote) {
+    if (evidenceUrl || evidenceNote || oracleVerified) {
       await db.run(
-        'UPDATE markets SET evidenceUrl = ?, evidenceNote = ? WHERE id = ?',
-        [evidenceUrl || null, evidenceNote || null, req.params.id]
+        `UPDATE markets SET 
+          evidenceUrl = COALESCE(?, evidenceUrl),
+          evidenceNote = COALESCE(?, evidenceNote),
+          oracle_verified = ?,
+          oracle_verified_at = CASE WHEN ? = 1 THEN NOW() ELSE oracle_verified_at END,
+          oracle_verification_url = CASE WHEN ? = 1 THEN ? ELSE oracle_verification_url END
+        WHERE id = ?`,
+        [evidenceUrl || null, evidenceNote || null, oracleVerified ? 1 : 0, oracleVerified ? 1 : 0, oracleVerified ? 1 : 0, evidenceUrl || null, marketId]
       )
     }
 
-    // 2. Wire in market settlement: Calculate payouts, update calibration, anchor to BSV
-    const settlement = await settlementEngine.settle(req.params.id, outcome, resolvedBy)
+    const settlement = await settlementEngine.settle(marketId, outcome, resolvedBy)
+    await signalPoolService.settleAll(marketId, outcome as 'yes' | 'no' | 'void')
+    await calibrationService.updateCalibration(marketId, outcome as 'yes' | 'no' | 'void')
 
-    // 3. Settle signal pools (Thursday implementation)
-    // For every signal on this market: distribute payouts, grant trace rights
-    await signalPoolService.settleAll(req.params.id, outcome as 'yes' | 'no' | 'void')
+    // Settle consensus claims if applicable
+    let consensusPayouts = null
+    if (mechanism === 'consensus') {
+      consensusPayouts = await consensusService.settle(marketId, outcome as 'yes' | 'no' | 'void')
+    }
 
-    // 4. Update calibration scores (Friday implementation)
-    // For every staker in this market: compute Brier score and update running average
-    await calibrationService.updateCalibration(req.params.id, outcome as 'yes' | 'no' | 'void')
-
-    // Return market and settlement results
-    ok(res, { market, settlement })
+    ok(res, { market, settlement, consensusPayouts })
   } catch (error: any) {
     fail(res, error.message, 400)
   }
@@ -1195,6 +1234,61 @@ router.get('/stats', async (_req: Request, res: Response) => {
     })
   } catch (error: any) {
     fail(res, error.message)
+  }
+})
+
+// ============ PHASE 3: CONSENSUS RESOLUTION ============
+
+/** POST /api/markets/:id/consensus/claim — submit a resolution claim (Tier 2) */
+router.post('/markets/:id/consensus/claim', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { claimedOutcome, stakeSats } = req.body
+    const agentId = (req as any).agentId
+    if (!['yes', 'no', 'void'].includes(claimedOutcome)) return fail(res, 'claimedOutcome must be yes, no, or void', 400)
+    if (!stakeSats || Number(stakeSats) < 1) return fail(res, 'stakeSats required', 400)
+    const result = await consensusService.submitClaim(req.params.id, agentId, claimedOutcome, Number(stakeSats))
+    ok(res, { claim: result }, 201)
+  } catch (error: any) {
+    fail(res, error.message, 400)
+  }
+})
+
+/** POST /api/markets/:id/consensus/commit — commit a hash (Tier 3, phase 1) */
+router.post('/markets/:id/consensus/commit', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { commitmentHash, stakeSats } = req.body
+    const agentId = (req as any).agentId
+    if (!commitmentHash) return fail(res, 'commitmentHash required', 400)
+    if (!stakeSats || Number(stakeSats) < 1) return fail(res, 'stakeSats required', 400)
+    const result = await consensusService.submitCommit(req.params.id, agentId, commitmentHash, Number(stakeSats))
+    ok(res, { commit: result }, 201)
+  } catch (error: any) {
+    fail(res, error.message, 400)
+  }
+})
+
+/** POST /api/markets/:id/consensus/reveal — reveal outcome + salt (Tier 3, phase 2) */
+router.post('/markets/:id/consensus/reveal', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const { outcome, salt } = req.body
+    const agentId = (req as any).agentId
+    if (!['yes', 'no', 'void'].includes(outcome)) return fail(res, 'outcome must be yes, no, or void', 400)
+    if (!salt) return fail(res, 'salt required', 400)
+    await consensusService.revealCommit(req.params.id, agentId, outcome, salt)
+    ok(res, { revealed: true })
+  } catch (error: any) {
+    fail(res, error.message, 400)
+  }
+})
+
+/** GET /api/markets/:id/consensus/claims — list all claims for a market */
+router.get('/markets/:id/consensus/claims', async (req: Request, res: Response) => {
+  try {
+    const claims = await consensusService.listClaims(req.params.id)
+    const tally = await consensusService.tally(req.params.id)
+    ok(res, { claims, tally })
+  } catch (error: any) {
+    fail(res, error.message, 500)
   }
 })
 
