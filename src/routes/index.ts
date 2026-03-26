@@ -931,6 +931,49 @@ router.post('/markets/:id/position', requireAuth, async (req: Request, res: Resp
   }
 })
 
+/**
+ * POST /api/markets/:id/stake
+ * Stake sats on a market outcome (yes|no)
+ * Deducts from agent balance_sats and records immutable stake
+ * Min stake: 100 sats
+ */
+router.post('/markets/:id/stake', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const { outcome, amountSats } = req.body
+
+    if (!outcome || !['yes', 'no'].includes(outcome)) return fail(res, 'outcome must be "yes" or "no"', 400)
+    if (!amountSats || Number(amountSats) < 100) return fail(res, 'amountSats must be >= 100', 400)
+
+    const amount = Number(amountSats)
+
+    // Check agent balance
+    const agentRow = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
+    if (!agentRow) return fail(res, 'Agent not found', 404)
+    if ((agentRow.balance_sats || 0) < amount) {
+      return fail(res, `Insufficient balance: have ${agentRow.balance_sats || 0} sats, need ${amount}`, 400)
+    }
+
+    // Deduct balance
+    await db.run(
+      'UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?',
+      [amount, agentId]
+    )
+
+    // Record stake
+    const position = await marketService.takePosition(req.params.id, agentId, outcome, amount)
+
+    // Return stake + updated balance
+    const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
+    ok(res, {
+      stake: position,
+      balance_sats: updated.balance_sats
+    })
+  } catch (error: any) {
+    fail(res, error.message, 400)
+  }
+})
+
 /** POST /api/markets/:id/open — transition PROPOSED → OPEN */
 router.post('/markets/:id/open', async (req: Request, res: Response) => {
   try {
