@@ -1,1 +1,1 @@
-{"version":3,"file":"migrations.d.ts","sourceRoot":"","sources":["../../src/db/migrations.ts"],"names":[],"mappings":"AAAA;;;GAGG;AACH,OAAO,EAAE,YAAY,EAAE,MAAM,cAAc,CAAA;AAE3C,wBAAsB,aAAa,CAAC,EAAE,EAAE,YAAY,GAAG,OAAO,CAAC,IAAI,CAAC,CAuCnE"}
+{"version":3,"file":"migrations.d.ts","sourceRoot":"","sources":["../../src/db/migrations.ts"],"names":[],"mappings":"AAAA;;;GAGG;AACH,OAAO,EAAE,YAAY,EAAE,MAAM,cAAc,CAAA;AAE3C,wBAAsB,aAAa,CAAC,EAAE,EAAE,YAAY,GAAG,OAAO,CAAC,IAAI,CAAC,CAwEnE"}
