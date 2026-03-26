@@ -9,6 +9,8 @@ export interface Agent {
     homepage: string | null;
     totalStakedSats: number;
     totalEarnedSats: number;
+    bsvAddress?: string | null;
+    bsvAddressVerifiedAt?: Date | null;
     firstSeenAt: Date;
     createdAt: Date;
     updatedAt: Date;

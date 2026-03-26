@@ -155,6 +155,8 @@ class AgentService {
             homepage: row.homepage,
             totalStakedSats: Number(row.totalStakedSats),
             totalEarnedSats: Number(row.totalEarnedSats),
+            bsvAddress: row.bsvAddress || null,
+            bsvAddressVerifiedAt: row.bsvAddressVerifiedAt ? new Date(row.bsvAddressVerifiedAt) : null,
             firstSeenAt: new Date(row.firstSeenAt),
             createdAt: new Date(row.createdAt),
             updatedAt: new Date(row.updatedAt)

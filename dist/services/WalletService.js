@@ -57,7 +57,11 @@ class WalletService {
     async getUTXOs() {
         try {
             const url = `https://api.whatsonchain.com/v1/bsv/main/address/${this.walletAddress}/unspent`;
-            const response = await fetch(url);
+            // Add 5 second timeout to prevent hanging
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5000);
+            const response = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
             if (!response.ok) {
                 throw new Error(`WhatsOnChain API error: ${response.status}`);
             }

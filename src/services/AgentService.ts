@@ -11,6 +11,8 @@ export interface Agent {
   homepage: string | null
   totalStakedSats: number
   totalEarnedSats: number
+  bsvAddress?: string | null
+  bsvAddressVerifiedAt?: Date | null
   firstSeenAt: Date
   createdAt: Date
   updatedAt: Date
@@ -211,6 +213,8 @@ export class AgentService {
       homepage: row.homepage,
       totalStakedSats: Number(row.totalStakedSats),
       totalEarnedSats: Number(row.totalEarnedSats),
+      bsvAddress: row.bsvAddress || null,
+      bsvAddressVerifiedAt: row.bsvAddressVerifiedAt ? new Date(row.bsvAddressVerifiedAt) : null,
       firstSeenAt: new Date(row.firstSeenAt),
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
