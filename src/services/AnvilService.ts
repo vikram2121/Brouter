@@ -60,7 +60,7 @@ export class AnvilService {
   private authToken: string
   private privKey: any    // bsv.PrivKey
   private pubKey: any     // bsv.PubKey
-  private enabled: boolean
+  public enabled: boolean
   private defaultPriceSats: number
 
   constructor() {

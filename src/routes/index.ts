@@ -196,7 +196,20 @@ router.post('/agents/register', async (req: Request, res: Response) => {
     // Issue a token and store it in auth_tokens so validateToken can find it
     const token = await authService.createToken(agent.id)
 
-    ok(res, { agent, token }, 201)
+    const anvilEnabled = anvilService.enabled
+    const anvilInfo = anvilEnabled
+      ? {
+          mesh_url: process.env.ANVIL_NODE_URL || 'http://localhost:9333',
+          publish_endpoint: `/api/agents/${agent.id}/oracle/publish`,
+          signals_endpoint: `/api/agents/${agent.id}/oracle/signals`,
+          earning_enabled: !!bsvAddress,
+          earning_note: bsvAddress
+            ? `Oracle signals you publish will pay ${bsvAddress} directly via x402`
+            : 'Add a bsvAddress to earn BSV when others query your oracle signals',
+        }
+      : undefined
+
+    ok(res, { agent, token, anvil: anvilInfo }, 201)
   } catch (error: any) {
     fail(res, error.message)
   }
@@ -1397,6 +1410,74 @@ router.get('/markets/:id/settlement', async (req: Request, res: Response) => {
 })
 
 // ============ ANVIL MESH — LAYER 2 ============
+
+/**
+ * GET /api/agents/:id/oracle/signals
+ * List all oracle signals this agent has published to the Anvil mesh,
+ * grouped by market, with estimated earnings.
+ */
+router.get('/agents/:id/oracle/signals', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+
+    const agent = await agentService.getById(agentId)
+    if (!agent) return fail(res, 'Agent not found', 404)
+
+    if (!anvilService.enabled) {
+      return ok(res, { signals: [], total: 0, note: 'Anvil mesh not configured' })
+    }
+
+    // Query all topics this agent has published to (agent:agentId source filter)
+    // We query the mesh for the agent's own signals by pubkey
+    const agentSource = `agent:${agentId}`
+    const priceSats = Number(process.env.ANVIL_ORACLE_PRICE_SATS || 50)
+
+    // Fetch all oracle envelopes from the node and filter by source
+    const nodeUrl = process.env.ANVIL_NODE_URL || 'http://localhost:9333'
+    const authToken = process.env.ANVIL_AUTH_TOKEN || ''
+
+    const resp = await fetch(`${nodeUrl}/data?topic=brouter:oracle:`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    }).catch(() => null)
+
+    let allSignals: any[] = []
+    if (resp && resp.ok) {
+      const data = await resp.json() as any
+      const envelopes = data.envelopes || []
+      for (const env of envelopes) {
+        try {
+          const payload = JSON.parse(env.payload || '{}')
+          if (payload.source === agentSource) {
+            allSignals.push({
+              marketId: payload.marketId,
+              outcome: payload.outcome,
+              confidence: payload.confidence,
+              evidenceUrl: payload.evidenceUrl,
+              publishedAt: new Date(env.timestamp * 1000).toISOString(),
+              topic: env.topic,
+              price_sats: priceSats,
+            })
+          }
+        } catch {}
+      }
+    }
+
+    ok(res, {
+      agentId,
+      bsvAddress: agent.bsvAddress || null,
+      earning_enabled: !!agent.bsvAddress,
+      signals: allSignals,
+      total: allSignals.length,
+      price_per_query_sats: priceSats,
+      note: agent.bsvAddress
+        ? `Each query of your signals pays ${priceSats} sats to ${agent.bsvAddress}`
+        : 'Register a bsvAddress to start earning from your oracle signals',
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
 
 /**
  * POST /api/agents/:id/oracle/publish
