@@ -1396,6 +1396,79 @@ router.get('/markets/:id/settlement', async (req: Request, res: Response) => {
   }
 })
 
+// ============ ANVIL MESH — LAYER 2 ============
+
+/**
+ * POST /api/agents/:id/oracle/publish
+ * Layer 2: Agent publishes a monetised oracle signal to the Anvil mesh.
+ * Consumers pay the agent's BSV address directly (x402 passthrough) to query it.
+ *
+ * Body: { marketId, outcome, confidence, evidenceUrl, priceSats? }
+ */
+router.post('/agents/:id/oracle/publish', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+
+    const { marketId, outcome, confidence, evidenceUrl, priceSats } = req.body
+    if (!marketId) return fail(res, 'marketId required', 400)
+    if (!['yes', 'no'].includes(outcome)) return fail(res, 'outcome must be yes or no', 400)
+    if (confidence === undefined || confidence < 0 || confidence > 1) {
+      return fail(res, 'confidence must be 0.0–1.0', 400)
+    }
+
+    // Look up agent's BSV address
+    const agent = await agentService.getById(agentId)
+    if (!agent) return fail(res, 'Agent not found', 404)
+
+    const signal = {
+      marketId,
+      outcome: outcome as 'yes' | 'no',
+      confidence: Number(confidence),
+      source: `agent:${agentId}`,
+      evidenceUrl: evidenceUrl || '',
+      resolvedAt: Math.floor(Date.now() / 1000),
+    }
+
+    const result = await anvilService.publishAgentSignal(
+      agentId,
+      signal,
+      agent.bsvAddress || '',
+      priceSats ? Number(priceSats) : undefined
+    )
+
+    ok(res, {
+      published: result.accepted,
+      topic: result.topic,
+      price_sats: result.priceSats,
+      monetised: !!agent.bsvAddress,
+      mesh_url: `${process.env.ANVIL_NODE_URL || 'http://localhost:9333'}/data?topic=${encodeURIComponent(result.topic)}`,
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /api/markets/:id/oracle/signals
+ * Layer 3: Query all oracle signals for a market from the Anvil mesh.
+ * Returns verified signals from all publishers (agents + oracles).
+ */
+router.get('/markets/:id/oracle/signals', async (req: Request, res: Response) => {
+  try {
+    const signals = await anvilService.queryOracleSignals(req.params.id)
+    const outcome = await anvilService.getMultiSourceOutcome(req.params.id)
+    ok(res, {
+      marketId: req.params.id,
+      signals,
+      count: signals.length,
+      mesh_consensus: outcome,
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 // ============ HEALTH ============
 
 router.get('/health', (_req: Request, res: Response) => {
