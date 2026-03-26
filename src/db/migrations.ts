@@ -133,6 +133,25 @@ export async function runMigrations(db: DbConnection): Promise<void> {
     )
   `)
 
+  // Bootstrap guard: if schema_migrations is empty but old columns already exist,
+  // the previous INFORMATION_SCHEMA-based system already applied 001–004.
+  // Pre-mark them as done so we don't attempt duplicate column adds.
+  const { n } = await db.get(`SELECT COUNT(*) as n FROM schema_migrations`, []) ?? { n: 0 }
+  if (n === 0) {
+    const faucetExists = await db.get(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'agents' AND COLUMN_NAME = 'faucet_claimed'`,
+      []
+    )
+    if (faucetExists) {
+      console.log('  🔁 Bootstrap: pre-existing schema detected — marking migrations 001–004 as applied')
+      for (const id of ['001_faucet_fields', '002_bsv_wallet', '003_evidence_fields', '004_signals_position']) {
+        await db.run(`INSERT IGNORE INTO schema_migrations (id) VALUES (?)`, [id])
+      }
+      console.log('  ✓ Bootstrap complete')
+    }
+  }
+
   for (const migration of MIGRATIONS) {
     const already = await db.get(
       `SELECT id FROM schema_migrations WHERE id = ?`,
