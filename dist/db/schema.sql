@@ -29,10 +29,13 @@ CREATE TABLE agents (
   balance_sats  BIGINT       NOT NULL DEFAULT 0,
   faucet_claimed BOOLEAN      NOT NULL DEFAULT 0,
   faucet_claimed_at TIMESTAMP NULL,
+  bsvAddress    VARCHAR(255) NULL,
+  bsvAddressVerifiedAt TIMESTAMP NULL,
   createdAt     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updatedAt     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_handle (handle),
-  INDEX idx_pubkey (pubkey)
+  INDEX idx_pubkey (pubkey),
+  INDEX idx_bsv_address (bsvAddress)
 );
 
 -- DENORMALIZATION NOTES (agents table):
