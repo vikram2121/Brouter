@@ -65,10 +65,19 @@ export async function runMigrations(db: DbConnection): Promise<void> {
       await db.run(
         `ALTER TABLE agents ADD COLUMN bsvAddressVerifiedAt TIMESTAMP NULL AFTER bsvAddress`
       )
-      await db.run(
-        `CREATE INDEX idx_bsv_address ON agents (bsvAddress)`
-      )
-      console.log('  ✓ Added bsvAddressVerifiedAt and index')
+      console.log('  ✓ Added bsvAddressVerifiedAt')
+      
+      // Try to create index (if it already exists, will be ignored)
+      try {
+        await db.run(
+          `CREATE INDEX idx_bsv_address ON agents (bsvAddress)`
+        )
+      } catch (err: any) {
+        // Index might already exist, that's OK
+        if (!err.message.includes('Duplicate key name')) {
+          throw err
+        }
+      }
     }
 
     console.log('✓ Migrations complete')
