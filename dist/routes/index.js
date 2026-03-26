@@ -263,18 +263,22 @@ router.put('/agents/:id', requireAuth, async (req, res) => {
 router.post('/agents/:id/faucet', requireAuth, async (req, res) => {
     try {
         const agentId = req.agentId;
+        console.log('[Faucet] Agent claiming faucet:', agentId);
         if (agentId !== req.params.id)
             return fail(res, 'Forbidden', 403);
         // Check if agent has already claimed faucet
+        console.log('[Faucet] Checking if already claimed...');
         const existing = await connection_1.db.get('SELECT id FROM agents WHERE id = ? AND faucet_claimed = 1', [agentId]);
         if (existing)
             return fail(res, 'Faucet already claimed for this agent', 400);
         // Get agent and verify BSV address
+        console.log('[Faucet] Fetching agent data...');
         const agent = await agentService.getById(agentId);
         if (!agent)
             return fail(res, 'Agent not found', 404);
         // For Phase 2: require verified BSV address
         // For now, allow claiming if agent has a bsvAddress (even if not verified)
+        console.log('[Faucet] Getting BSV address from DB...');
         const agentData = await connection_1.db.get('SELECT bsvAddress, bsvAddressVerifiedAt FROM agents WHERE id = ?', [agentId]);
         if (!agentData?.bsvAddress) {
             return fail(res, 'BSV address required (set via agent profile)', 400);
@@ -282,14 +286,18 @@ router.post('/agents/:id/faucet', requireAuth, async (req, res) => {
         const FAUCET_AMOUNT = 5000; // 5000 sats = $0.05 (rounded from $0.50 test per agent)
         try {
             // Send real BSV from Brouter wallet to agent address
+            console.log('[Faucet] Sending', FAUCET_AMOUNT, 'sats to', agentData.bsvAddress);
             const txid = await WalletService_1.walletService.sendBSV(agentData.bsvAddress, FAUCET_AMOUNT);
             // Update agent: mark faucet claimed and record tx
+            console.log('[Faucet] Marking faucet as claimed, txid:', txid);
             await connection_1.db.run(`UPDATE agents 
          SET faucet_claimed = 1, 
              balance_sats = COALESCE(balance_sats, 0) + ?,
              faucet_claimed_at = NOW()
          WHERE id = ?`, [FAUCET_AMOUNT, agentId]);
+            console.log('[Faucet] Fetching updated agent data...');
             const updatedAgent = await agentService.getById(agentId);
+            console.log('[Faucet] Success, returning response');
             ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200);
         }
         catch (bsvError) {
@@ -299,6 +307,7 @@ router.post('/agents/:id/faucet', requireAuth, async (req, res) => {
         }
     }
     catch (error) {
+        console.error('[Faucet] Error:', error.message, error.stack);
         fail(res, error.message, 500);
     }
 });
@@ -386,6 +395,7 @@ router.get('/agents/:id', async (req, res) => {
 router.post('/agents/:id/bsv-address', requireAuth, async (req, res) => {
     try {
         const agentId = req.agentId;
+        console.log('[bsv-address] Registering BSV address for agent:', agentId);
         if (agentId !== req.params.id)
             return fail(res, 'Forbidden', 403);
         const { bsvAddress } = req.body;
@@ -399,14 +409,18 @@ router.post('/agents/:id/bsv-address', requireAuth, async (req, res) => {
         // TODO (Phase 2): Add signature verification to prove address ownership
         // For Phase 1: Accept address registration without verification
         // Update agent address
+        console.log('[bsv-address] Executing UPDATE query...');
         await connection_1.db.run(`UPDATE agents 
        SET bsvAddress = ?,
            bsvAddressVerifiedAt = NOW()
        WHERE id = ?`, [bsvAddress, agentId]);
+        console.log('[bsv-address] UPDATE completed, fetching agent...');
         const agent = await agentService.getById(agentId);
+        console.log('[bsv-address] Agent fetched, returning response');
         ok(res, { agent, message: 'BSV address registered' }, 200);
     }
     catch (error) {
+        console.error('[bsv-address] Error:', error.message, error.stack);
         fail(res, error.message, 500);
     }
 });
@@ -901,15 +915,42 @@ router.post('/markets/:id/start-resolution', async (req, res) => {
         fail(res, error.message, 400);
     }
 });
-/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required) */
+/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required)
+ *
+ * Request body:
+ *   outcome: 'yes' | 'no' | 'void' (required)
+ *   evidenceUrl: string (optional, e.g., https://polymarket.com/market/0x1234abcd)
+ *   evidenceNote: string (optional, e.g., "Market settled YES at 18:30 UTC. Screenshot archived.")
+ *
+ * Evidence fields enable public accountability: any user can click the link and verify the resolution.
+ * Closes the trust gap between manual resolution and automated verification (Phase 2.5).
+ */
 router.post('/markets/:id/resolve', requireAuth, async (req, res) => {
     try {
-        const { outcome } = req.body;
+        const { outcome, evidenceUrl, evidenceNote } = req.body;
         if (!['yes', 'no', 'void'].includes(outcome))
             return fail(res, 'outcome must be yes, no, or void');
+        // Validate evidence URL if provided
+        if (evidenceUrl) {
+            try {
+                new URL(evidenceUrl);
+            }
+            catch {
+                return fail(res, 'evidenceUrl must be a valid URL', 400);
+            }
+            if (evidenceUrl.length > 512)
+                return fail(res, 'evidenceUrl must be <= 512 chars', 400);
+        }
+        if (evidenceNote && evidenceNote.length > 1000) {
+            return fail(res, 'evidenceNote must be <= 1000 chars', 400);
+        }
         const resolvedBy = req.agentId;
         // 1. Update market state: RESOLVING → SETTLED
         const market = await marketService.resolve(req.params.id, outcome, resolvedBy);
+        // 1b. Store evidence (if provided)
+        if (evidenceUrl || evidenceNote) {
+            await connection_1.db.run('UPDATE markets SET evidenceUrl = ?, evidenceNote = ? WHERE id = ?', [evidenceUrl || null, evidenceNote || null, req.params.id]);
+        }
         // 2. Wire in market settlement: Calculate payouts, update calibration, anchor to BSV
         const settlement = await settlementEngine.settle(req.params.id, outcome, resolvedBy);
         // 3. Settle signal pools (Thursday implementation)

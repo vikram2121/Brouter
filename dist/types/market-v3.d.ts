@@ -37,6 +37,8 @@ export interface Market {
     oracleThreshold?: string;
     outcome?: Outcome;
     resolvedBy?: string;
+    evidenceUrl?: string;
+    evidenceNote?: string;
     disputeWindowEndsAt?: Date;
     minStakeToOpenSats: number;
     totalYesSats: number;

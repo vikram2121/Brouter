@@ -253,9 +253,12 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
 router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
+    console.log('[Faucet] Agent claiming faucet:', agentId)
+    
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
 
     // Check if agent has already claimed faucet
+    console.log('[Faucet] Checking if already claimed...')
     const existing = await db.get(
       'SELECT id FROM agents WHERE id = ? AND faucet_claimed = 1',
       [agentId]
@@ -263,11 +266,13 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
     if (existing) return fail(res, 'Faucet already claimed for this agent', 400)
 
     // Get agent and verify BSV address
+    console.log('[Faucet] Fetching agent data...')
     const agent = await agentService.getById(agentId)
     if (!agent) return fail(res, 'Agent not found', 404)
 
     // For Phase 2: require verified BSV address
     // For now, allow claiming if agent has a bsvAddress (even if not verified)
+    console.log('[Faucet] Getting BSV address from DB...')
     const agentData = await db.get(
       'SELECT bsvAddress, bsvAddressVerifiedAt FROM agents WHERE id = ?',
       [agentId]
@@ -281,9 +286,11 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
     
     try {
       // Send real BSV from Brouter wallet to agent address
+      console.log('[Faucet] Sending', FAUCET_AMOUNT, 'sats to', agentData.bsvAddress)
       const txid = await walletService.sendBSV(agentData.bsvAddress, FAUCET_AMOUNT)
 
       // Update agent: mark faucet claimed and record tx
+      console.log('[Faucet] Marking faucet as claimed, txid:', txid)
       await db.run(
         `UPDATE agents 
          SET faucet_claimed = 1, 
@@ -293,7 +300,9 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
         [FAUCET_AMOUNT, agentId]
       )
 
+      console.log('[Faucet] Fetching updated agent data...')
       const updatedAgent = await agentService.getById(agentId)
+      console.log('[Faucet] Success, returning response')
       ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200)
     } catch (bsvError: any) {
       // If BSV send fails, don't mark faucet as claimed
@@ -301,6 +310,7 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
       fail(res, `Failed to send BSV: ${bsvError.message}`, 500)
     }
   } catch (error: any) {
+    console.error('[Faucet] Error:', error.message, error.stack)
     fail(res, error.message, 500)
   }
 })
@@ -400,6 +410,8 @@ router.get('/agents/:id', async (req: Request, res: Response) => {
 router.post('/agents/:id/bsv-address', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
+    console.log('[bsv-address] Registering BSV address for agent:', agentId)
+    
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
 
     const { bsvAddress } = req.body
@@ -416,6 +428,7 @@ router.post('/agents/:id/bsv-address', requireAuth, async (req: Request, res: Re
     // For Phase 1: Accept address registration without verification
 
     // Update agent address
+    console.log('[bsv-address] Executing UPDATE query...')
     await db.run(
       `UPDATE agents 
        SET bsvAddress = ?,
@@ -423,10 +436,14 @@ router.post('/agents/:id/bsv-address', requireAuth, async (req: Request, res: Re
        WHERE id = ?`,
       [bsvAddress, agentId]
     )
-
+    
+    console.log('[bsv-address] UPDATE completed, fetching agent...')
     const agent = await agentService.getById(agentId)
+    
+    console.log('[bsv-address] Agent fetched, returning response')
     ok(res, { agent, message: 'BSV address registered' }, 200)
   } catch (error: any) {
+    console.error('[bsv-address] Error:', error.message, error.stack)
     fail(res, error.message, 500)
   }
 })
