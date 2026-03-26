@@ -9,6 +9,7 @@ import swaggerUi from 'swagger-ui-express'
 import { db } from './db/connection'
 import routes from './routes'
 import { openApiSpec } from './openapi'
+import { ResolutionCron } from './services/ResolutionCron'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -76,6 +77,15 @@ const start = async () => {
         await db.initialize()
         dbReady = true
         console.log('✅ Database connected')
+
+        // Start autonomous resolution cron (60s interval)
+        const cron = new ResolutionCron(db)
+        const cronHandle = cron.start(60_000)
+
+        // Stop cron on graceful shutdown
+        process.on('SIGINT', () => clearInterval(cronHandle))
+        process.on('SIGTERM', () => clearInterval(cronHandle))
+
         return
       } catch (error) {
         attempts++
