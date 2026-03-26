@@ -429,13 +429,37 @@ router.post('/agents/:id/bsv-address', requireAuth, async (req: Request, res: Re
 
     // Update agent address
     console.log('[bsv-address] Executing UPDATE query...')
-    await db.run(
-      `UPDATE agents 
-       SET bsvAddress = ?,
-           bsvAddressVerifiedAt = NOW()
-       WHERE id = ?`,
-      [bsvAddress, agentId]
-    )
+    try {
+      await db.run(
+        `UPDATE agents 
+         SET bsvAddress = ?,
+             bsvAddressVerifiedAt = NOW()
+         WHERE id = ?`,
+        [bsvAddress, agentId]
+      )
+    } catch (updateError: any) {
+      // If columns don't exist, try to create them first
+      if (updateError.message.includes('Unknown column') || updateError.code === 'ER_BAD_FIELD_ERROR') {
+        console.warn('[bsv-address] Columns missing, attempting to create them...')
+        try {
+          await db.run('ALTER TABLE agents ADD COLUMN bsvAddress VARCHAR(255) NULL')
+        } catch { /* might already exist */ }
+        try {
+          await db.run('ALTER TABLE agents ADD COLUMN bsvAddressVerifiedAt TIMESTAMP NULL')
+        } catch { /* might already exist */ }
+        
+        // Retry the UPDATE
+        await db.run(
+          `UPDATE agents 
+           SET bsvAddress = ?,
+               bsvAddressVerifiedAt = NOW()
+           WHERE id = ?`,
+          [bsvAddress, agentId]
+        )
+      } else {
+        throw updateError
+      }
+    }
     
     console.log('[bsv-address] UPDATE completed, fetching agent...')
     const agent = await agentService.getById(agentId)
