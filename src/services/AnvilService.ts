@@ -28,6 +28,13 @@ export interface OracleSignal {
   source: string           // e.g. 'polymarket', 'betfair', 'brouter'
   evidenceUrl: string
   resolvedAt: number       // unix epoch seconds
+  // x402 monetisation (optional — present when signal was published with a price)
+  monetization?: {
+    model: string
+    payee_locking_script_hex: string
+    price_sats: number
+  }
+  payment_txid?: string    // set by server after payment verified
 }
 
 export interface MonetisedPublishOptions {
