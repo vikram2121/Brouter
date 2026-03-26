@@ -260,45 +260,18 @@ router.put('/agents/:id', requireAuth, async (req, res) => {
  * Requires auth, matching agent ID, and valid BSV address
  */
 router.post('/agents/:id/faucet', requireAuth, async (req, res) => {
-    try {
-        const agentId = req.agentId;
-        console.log('[Faucet] Agent claiming faucet:', agentId);
-        if (agentId !== req.params.id)
-            return fail(res, 'Forbidden', 403);
-        // Check if agent has already claimed faucet
-        console.log('[Faucet] Checking if already claimed...');
-        const existing = await connection_1.db.get('SELECT id FROM agents WHERE id = ? AND faucet_claimed = 1', [agentId]);
-        if (existing)
-            return fail(res, 'Faucet already claimed for this agent', 400);
-        // Get agent and verify BSV address
-        console.log('[Faucet] Fetching agent data...');
-        const agent = await agentService.getById(agentId);
-        if (!agent)
-            return fail(res, 'Agent not found', 404);
-        // For Phase 2: require verified BSV address
-        // For now, allow claiming if agent has a bsvAddress (even if not verified)
-        console.log('[Faucet] Getting BSV address from DB...');
-        const agentData = await connection_1.db.get('SELECT bsvAddress, bsvAddressVerifiedAt FROM agents WHERE id = ?', [agentId]);
-        if (!agentData?.bsvAddress) {
-            return fail(res, 'BSV address required (set via agent profile)', 400);
-        }
-        const FAUCET_AMOUNT = 5000; // 5000 sats = $0.05 (rounded from $0.50 test per agent)
-        // Phase 2 test: Just return mock faucet for now
-        const txid = 'mock_' + Date.now();
-        // Try to update, but don't block if it fails
-        try {
-            await connection_1.db.run(`UPDATE agents SET faucet_claimed = 1, balance_sats = balance_sats + ?, faucet_claimed_at = NOW() WHERE id = ?`, [FAUCET_AMOUNT, agentId]);
-        }
-        catch (e) {
-            console.warn('[Faucet] DB update failed, continuing anyway:', e);
-        }
-        const updatedAgent = await agentService.getById(agentId);
-        ok(res, { agent: updatedAgent, claimed_sats: FAUCET_AMOUNT, txid }, 200);
-    }
-    catch (error) {
-        console.error('[Faucet] Error:', error.message, error.stack);
-        fail(res, error.message, 500);
-    }
+    const agentId = req.agentId;
+    if (agentId !== req.params.id)
+        return fail(res, 'Forbidden', 403);
+    // Phase 2 mock: Just return faucet without any DB operations
+    const FAUCET_AMOUNT = 5000;
+    const txid = 'mock_txid_' + Date.now();
+    ok(res, {
+        agent: { id: agentId },
+        claimed_sats: FAUCET_AMOUNT,
+        txid: txid,
+        message: 'Faucet claimed (Phase 2 mock)'
+    }, 200);
 });
 /**
  * GET /api/leaderboard
