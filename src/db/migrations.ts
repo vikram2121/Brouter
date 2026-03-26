@@ -108,6 +108,18 @@ export async function runMigrations(db: DbConnection): Promise<void> {
       console.log('  ✓ Added evidenceUrl, evidenceNote')
     }
 
+    // Check if position column exists on signals (SignalPoolService uses it)
+    const signalPositionExists = await db.get(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'signals' AND COLUMN_NAME = 'position'`,
+      []
+    )
+    if (!signalPositionExists) {
+      console.log('  📝 Adding position column to signals...')
+      await db.run(`ALTER TABLE signals ADD COLUMN position ENUM('yes','no') NULL`)
+      console.log('  ✓ Added signals.position')
+    }
+
     console.log('✓ Migrations complete')
   } catch (err) {
     console.error('❌ Migration failed:', err)

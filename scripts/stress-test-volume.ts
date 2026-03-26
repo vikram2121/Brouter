@@ -54,10 +54,10 @@ async function runVolumeTest() {
     const batchAgents = await Promise.allSettled(
       Array.from({ length: 10 }, (_, i) => {
         const id = batch * 10 + i
-        const runId = Date.now().toString().slice(-6)
+        const runId = `${Date.now()}${Math.random().toString(36).slice(2, 6)}`
         return api.post('/api/agents/register', {
-          name: `stressagent${runId}${String(id).padStart(3, '0')}`,
-          publicKey: generateTestKey(`stress-${id}`),
+          name: `sa${runId.slice(-8)}${String(id).padStart(2, '0')}`,
+          publicKey: generateTestKey(`stress-${runId}-${id}`),
           description: `Load test agent ${id}`,
           bsvAddress: '1TestBSVAddress123456789'
         })
@@ -182,9 +182,12 @@ async function runVolumeTest() {
       .post(
         `/api/markets/${market.id}/signal`,
         {
+          title: `Signal ${Date.now()}`,
+          body: `Market conditions favorable. Based on current data and trends.`,
+          confidence: ['low', 'medium', 'high'][Math.floor(Math.random() * 3)],
+          claimedProb: 0.3 + Math.random() * 0.4,
           position: Math.random() > 0.5 ? 'yes' : 'no',
-          claimed_prob: 0.3 + Math.random() * 0.4,
-          reasoning: `Signal from ${agent.name}: Market conditions favorable. Based on current data and trends.`
+          postingFeeSats: 100
         },
         { headers: { Authorization: `Bearer ${agent.token}` } }
       )
@@ -289,7 +292,7 @@ async function runVolumeTest() {
     try {
       const outcome = Math.random() > 0.5 ? 'yes' : 'no'
       const opStart = Date.now()
-      await api.post(`/api/markets/${market.id}/resolve`, { outcome })
+      await api.post(`/api/markets/${market.id}/resolve`, { outcome }, { headers: { Authorization: `Bearer ${agents[0].token}` } })
       const resolveDuration = Date.now() - opStart
       console.log(`  ✅ Resolved market ${market.id} → ${outcome.toUpperCase()} in ${resolveDuration}ms`)
       results.push({
