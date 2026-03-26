@@ -14,6 +14,7 @@ import { SignalPoolService } from '../services/SignalPoolService'
 import { CalibrationService } from '../services/CalibrationService'
 import { OracleResolver } from '../services/OracleResolver'
 import { ConsensusService } from '../services/ConsensusService'
+import { AnvilService } from '../services/AnvilService'
 import { walletService } from '../services/WalletService'
 
 // Initialize services
@@ -27,6 +28,7 @@ const signalPoolService = new SignalPoolService(db)
 const calibrationService = new CalibrationService(db)
 const oracleResolver = new OracleResolver()
 const consensusService = new ConsensusService(db)
+const anvilService = new AnvilService()
 
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig: SettlementConfig = {
@@ -1102,14 +1104,35 @@ router.post('/markets/:id/resolve', requireAuth, async (req: Request, res: Respo
     // ── TIER 1: Oracle-first ──────────────────────────────────────────────────
     let oracleVerified = false
     if (mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
-      const oracleResult = await oracleResolver.resolve(marketRow.oracleProvider, marketRow.oracleMarketId)
-      if (oracleResult?.resolved) {
-        outcome = oracleResult.outcome
-        evidenceUrl = evidenceUrl || oracleResult.evidence
-        evidenceNote = evidenceNote || `Auto-resolved by ${oracleResult.source} oracle`
+      // Layer 3: check Anvil mesh first for multi-source consensus
+      const meshOutcome = await anvilService.getMultiSourceOutcome(marketId)
+
+      if (meshOutcome) {
+        // Multiple independent sources agree on mesh — use mesh consensus
+        outcome = meshOutcome
+        evidenceNote = evidenceNote || `Multi-source mesh consensus: ${meshOutcome.toUpperCase()}`
         oracleVerified = true
+      } else {
+        // Layer 1 fallback: query oracle directly
+        const oracleResult = await oracleResolver.resolve(marketRow.oracleProvider, marketRow.oracleMarketId)
+        if (oracleResult?.resolved) {
+          outcome = oracleResult.outcome
+          evidenceUrl = evidenceUrl || oracleResult.evidence
+          evidenceNote = evidenceNote || `Auto-resolved by ${oracleResult.source} oracle`
+          oracleVerified = true
+
+          // Layer 1: publish this resolution to Anvil mesh for future consumers
+          anvilService.publishOracleSignal({
+            marketId,
+            outcome: oracleResult.outcome as 'yes' | 'no',
+            confidence: 0.95,
+            source: oracleResult.source,
+            evidenceUrl: oracleResult.evidence,
+            resolvedAt: Math.floor(Date.now() / 1000),
+          }).catch(() => {}) // non-fatal
+        }
       }
-      // If oracle hasn't resolved yet, fall through to manual (outcome from body)
+      // If neither mesh nor oracle resolved yet, fall through to manual (outcome from body)
     }
 
     // ── TIER 2: Consensus ─────────────────────────────────────────────────────

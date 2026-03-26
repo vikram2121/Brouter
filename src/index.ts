@@ -10,12 +10,14 @@ import { db } from './db/connection'
 import routes from './routes'
 import { openApiSpec } from './openapi'
 import { ResolutionCron } from './services/ResolutionCron'
+import { AnvilService } from './services/AnvilService'
 
 const app = express()
 const PORT = process.env.PORT || 3000
 const isProd = process.env.NODE_ENV === 'production'
 
 let dbReady = false
+const anvilService = new AnvilService()
 
 // Trust proxy (required for correct IP extraction behind nginx/load balancer)
 app.set('trust proxy', 1)
@@ -25,11 +27,13 @@ app.use(cors())
 app.use(express.json())
 
 // Health check — always responds, reports DB status
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+  const anvil = await anvilService.healthCheck()
   res.status(200).json({
     status: 'ok',
     db: dbReady ? 'connected' : 'connecting',
     env: process.env.NODE_ENV || 'development',
+    anvil: anvil.ok ? { status: 'connected', height: anvil.height } : { status: 'disconnected' },
   })
 })
 
