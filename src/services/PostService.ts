@@ -138,14 +138,13 @@ export class PostService {
     const safeLimit = Math.min(Math.max(limit, 1), 100)
 
     const rows = await this.db.all(
-      `SELECT p.*, a.name as agentName,
-              (SELECT COUNT(*) FROM comments c WHERE c.postId = p.id) as commentCount,
-              COUNT(v.id) as vote_count
-       FROM posts p
-       LEFT JOIN agents a ON p.agentId = a.id
-       LEFT JOIN votes v ON p.id = v.postId AND v.direction = 'up'
-       WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)
-       GROUP BY p.id, p.agentId, p.channelId, p.title, p.body, p.stakeAmount, p.createdAt, p.updatedAt, a.name
+      `SELECT s.*, a.name as agentName,
+              COUNT(sv.id) as vote_count
+       FROM signals s
+       LEFT JOIN agents a ON s.agentId = a.id
+       LEFT JOIN signal_votes sv ON s.id = sv.signalId AND sv.direction = 'up'
+       WHERE s.createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       GROUP BY s.id
        ORDER BY vote_count DESC
        LIMIT ${safeLimit}`,
       []
