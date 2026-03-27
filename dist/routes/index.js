@@ -1816,31 +1816,68 @@ router.post('/admin/reset', async (req, res) => {
     }
     try {
         const db = postService.db;
-        // Wipe in FK-safe order
-        const tables = [
-            'x402_payments',
-            'signal_payouts',
-            'signal_dust',
-            'signal_pools',
-            'signal_votes',
-            'signals',
-            'market_disputes',
-            'market_state_log',
-            'auth_tokens',
-            'agents',
-            'markets',
-        ];
         const counts = {};
-        for (const table of tables) {
+        // Helper to count then delete with optional WHERE clause
+        const wipe = async (table, where = '') => {
             try {
-                const before = await db.get(`SELECT COUNT(*) as n FROM \`${table}\``);
+                const clause = where ? ` WHERE ${where}` : '';
+                const before = await db.get(`SELECT COUNT(*) as n FROM \`${table}\`${clause}`);
                 counts[table] = before?.n ?? 0;
-                await db.run(`DELETE FROM \`${table}\``);
+                await db.run(`DELETE FROM \`${table}\`${clause}`);
             }
-            catch (e) {
-                counts[table] = -1; // table may not exist yet
+            catch {
+                counts[table] = -1;
+            }
+        };
+        // Identify load-test agents (description starts with "Load test agent")
+        // and the brouteradmin seed agents — keep real user agents
+        const syntheticAgentIds = [];
+        try {
+            const rows = await db.all(`SELECT id FROM agents WHERE description LIKE 'Load test agent%' OR name LIKE 'brouteradmin%'`);
+            rows.forEach((r) => syntheticAgentIds.push(r.id));
+        }
+        catch { }
+        // Wipe signal-related tables fully (all data is synthetic)
+        await wipe('x402_payments');
+        await wipe('signal_payouts');
+        await wipe('signal_dust');
+        await wipe('signal_pools');
+        await wipe('signal_votes');
+        await wipe('signals');
+        await wipe('market_disputes');
+        await wipe('market_state_log');
+        // Wipe only synthetic agent auth tokens
+        if (syntheticAgentIds.length) {
+            const placeholders = syntheticAgentIds.map(() => '?').join(',');
+            try {
+                const before = await db.get(`SELECT COUNT(*) as n FROM auth_tokens WHERE agentId IN (${placeholders})`, syntheticAgentIds);
+                counts['auth_tokens'] = before?.n ?? 0;
+                await db.run(`DELETE FROM auth_tokens WHERE agentId IN (${placeholders})`, syntheticAgentIds);
+            }
+            catch {
+                counts['auth_tokens'] = -1;
             }
         }
+        else {
+            counts['auth_tokens'] = 0;
+        }
+        // Wipe only synthetic agents
+        if (syntheticAgentIds.length) {
+            const placeholders = syntheticAgentIds.map(() => '?').join(',');
+            try {
+                const before = await db.get(`SELECT COUNT(*) as n FROM agents WHERE id IN (${placeholders})`, syntheticAgentIds);
+                counts['agents'] = before?.n ?? 0;
+                await db.run(`DELETE FROM agents WHERE id IN (${placeholders})`, syntheticAgentIds);
+            }
+            catch {
+                counts['agents'] = -1;
+            }
+        }
+        else {
+            counts['agents'] = 0;
+        }
+        // Wipe only stress-test markets (title starts with "Stress Test")
+        await wipe('markets', `title LIKE 'Stress Test%'`);
         // Reset auto-increment counters where applicable
         try {
             await db.run(`ALTER TABLE signal_pools AUTO_INCREMENT = 1`);
@@ -1860,7 +1897,7 @@ router.post('/admin/reset', async (req, res) => {
         catch { }
         console.log('[admin/reset] Data wiped:', counts);
         ok(res, {
-            message: 'All test data wiped. Platform is clean.',
+            message: 'Synthetic/test data wiped. Real markets and users preserved.',
             deleted: counts,
             timestamp: new Date().toISOString(),
         });
