@@ -175,7 +175,13 @@ export class AnvilService {
       }
     }
 
-    const envelope = this.buildEnvelope(topic, payload, 3600, false, monetization)
+    // Embed monetization into payload so it survives the Anvil round-trip
+    // (Anvil does not currently return the monetization envelope field on query)
+    const enrichedPayload = JSON.stringify({
+      ...JSON.parse(payload),
+      ...(monetization ? { monetization } : {}),
+    })
+    const envelope = this.buildEnvelope(topic, enrichedPayload, 3600, false, monetization)
 
     try {
       const result = await this.post('/data', envelope)
@@ -213,8 +219,8 @@ export class AnvilService {
         try {
           const signal = JSON.parse(env.payload) as OracleSignal
           if (signal.marketId && signal.outcome && signal.source) {
-            // Attach monetization from envelope if present (used by x402 payment gate)
-            if (env.monetization) {
+            // monetization is embedded in payload (primary) or envelope (fallback)
+            if (!signal.monetization && env.monetization) {
               signal.monetization = env.monetization as { model: string; payee_locking_script_hex: string; price_sats: number }
             }
             signals.push(signal)
