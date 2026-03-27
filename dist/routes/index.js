@@ -1840,7 +1840,7 @@ router.post('/admin/reset', adminLimiter, async (req, res) => {
         // and the brouteradmin seed agents — keep real user agents
         const syntheticAgentIds = [];
         try {
-            const rows = await db.all(`SELECT id FROM agents WHERE description LIKE 'Load test agent%' OR name LIKE 'brouteradmin%'`);
+            const rows = await db.all(`SELECT id FROM agents WHERE description LIKE 'Load test agent%' OR description LIKE 'Test agent for domain%' OR name LIKE 'brouteradmin%' OR name LIKE 'sa%'`);
             rows.forEach((r) => syntheticAgentIds.push(r.id));
         }
         catch { }
