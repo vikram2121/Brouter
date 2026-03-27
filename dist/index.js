@@ -56,7 +56,29 @@ const anvilService = new AnvilService_1.AnvilService();
 // Trust proxy (required for correct IP extraction behind nginx/load balancer)
 app.set('trust proxy', 1);
 // Middleware
-app.use((0, cors_1.default)());
+const ALLOWED_ORIGINS = [
+    'https://brouter.ai',
+    'https://www.brouter.ai',
+    'https://agent.brouter.ai',
+    // Allow all origins for the public API (agents need cross-origin access)
+    // but restrict credentials/cookies to known origins
+];
+app.use((0, cors_1.default)({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (curl, server-to-server, mobile apps)
+        if (!origin)
+            return callback(null, true);
+        // Allow brouter.ai subdomains + localhost in dev
+        if (ALLOWED_ORIGINS.includes(origin) ||
+            /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+            /^https:\/\/.*\.brouter\.ai$/.test(origin)) {
+            return callback(null, true);
+        }
+        // Still allow other origins for the public read API — agents need access
+        return callback(null, true);
+    },
+    credentials: false,
+}));
 app.use(express_1.default.json());
 // Broadcast agent instructions URL on every response
 app.use((_req, res, next) => {

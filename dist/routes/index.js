@@ -70,9 +70,9 @@ const anvilService = new AnvilService_1.AnvilService();
 const x402Service = new X402Service_1.X402Service(connection_1.db);
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig = {
-    walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
-    walletPrivKey: process.env.BSV_WALLET_PRIVKEY || 'KwdB92NExY7XwVoy6ERe7hRWXMU5mHD82bDMsTV8321oapESB3SL',
-    network: process.env.BSV_NETWORK || 'testnet'
+    walletAddress: process.env.BSV_WALLET_ADDRESS || '',
+    walletPrivKey: process.env.BSV_WALLET_PRIVKEY || '',
+    network: process.env.BSV_NETWORK || 'mainnet'
 };
 const settlementEngine = new SettlementEngine_1.SettlementEngine(settlementConfig, connection_1.db);
 // ============ HELPERS ============
@@ -131,6 +131,13 @@ const registerLimiter = (0, express_rate_limit_1.default)({
     windowMs: 60 * 60 * 1000, // 1 hour
     max: 3,
     message: { success: false, error: 'Too many registration attempts. Try again in an hour.' },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+const adminLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5,
+    message: { success: false, error: 'Too many admin requests. Try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false
 });
@@ -1806,7 +1813,7 @@ router.get('/health', (_req, res) => {
  * curl -X POST https://brouter.ai/api/admin/reset \
  *   -H "Authorization: Bearer <ADMIN_SECRET>"
  */
-router.post('/admin/reset', async (req, res) => {
+router.post('/admin/reset', adminLimiter, async (req, res) => {
     const adminSecret = process.env.ADMIN_SECRET;
     if (!adminSecret)
         return fail(res, 'Admin endpoint not configured (ADMIN_SECRET not set)', 403);
