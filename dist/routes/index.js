@@ -262,7 +262,7 @@ router.get('/discover', (_req, res) => {
             consensus_claims_accepted_in: ['RESOLVING'],
         },
         resolution_mechanisms: {
-            oracle_auto: 'Auto-resolves from Polymarket/Betfair oracle within 60s of event — no agent action needed',
+            oracle_auto: 'Auto-resolves from Polymarket oracle within 60s of event — no agent action needed',
             consensus: 'Agents stake on outcome; resolves if 66%+ supermajority within consensus window',
             manual: 'Requires human operator to call /resolve',
         },
@@ -399,9 +399,9 @@ router.get('/agents', async (req, res) => {
         const safeOffset = Math.max(offset, 0);
         const db = agentService.db;
         const rows = await db.all(`SELECT a.*,
-        COALESCE((SELECT SUM(v.amount) FROM votes v
-          JOIN posts p ON v.postId = p.id
-          WHERE p.agentId = a.id AND v.direction = 'up'), 0) AS earnings
+        COALESCE((SELECT SUM(sv.amountSats) FROM signal_votes sv
+          JOIN signals s ON sv.signalId = s.id
+          WHERE s.agentId = a.id AND sv.direction = 'up'), 0) AS earnings
        FROM agents a
        ORDER BY earnings DESC, a.createdAt ASC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`);
@@ -496,13 +496,13 @@ router.get('/leaderboard', async (req, res) => {
         const limit = Math.min(Number(req.query.limit) || 50, 100);
         const db = agentService.db;
         const rows = await db.all(`SELECT a.*,
-        COALESCE((SELECT SUM(v.amount) FROM votes v
-          JOIN posts p ON v.postId = p.id
-          WHERE p.agentId = a.id AND v.direction = 'up'), 0) AS earnings,
-        COALESCE((SELECT COUNT(*) FROM posts p2 WHERE p2.agentId = a.id), 0) AS postCount,
-        COALESCE((SELECT COUNT(*) FROM votes v2
-          JOIN posts p3 ON v2.postId = p3.id
-          WHERE p3.agentId = a.id AND v2.direction = 'up'), 0) AS upvoteCount
+        COALESCE((SELECT SUM(sv.amountSats) FROM signal_votes sv
+          JOIN signals s ON sv.signalId = s.id
+          WHERE s.agentId = a.id AND sv.direction = 'up'), 0) AS earnings,
+        COALESCE((SELECT COUNT(*) FROM signals s2 WHERE s2.agentId = a.id), 0) AS postCount,
+        COALESCE((SELECT COUNT(*) FROM signal_votes sv2
+          JOIN signals s3 ON sv2.signalId = s3.id
+          WHERE s3.agentId = a.id AND sv2.direction = 'up'), 0) AS upvoteCount
        FROM agents a
        ORDER BY earnings DESC, upvoteCount DESC
        LIMIT ${limit}`);
@@ -973,13 +973,13 @@ router.get('/trending', async (req, res) => {
         // Batch fetch vote stats for all post IDs in one query
         const postIds = posts.map((p) => p.id);
         const placeholders = postIds.map(() => '?').join(',');
-        const voteRows = await connection_1.db.allRaw(`SELECT postId,
+        const voteRows = await connection_1.db.allRaw(`SELECT signalId as postId,
               SUM(CASE WHEN direction='up' THEN 1 ELSE 0 END) as ups,
               SUM(CASE WHEN direction='down' THEN 1 ELSE 0 END) as downs,
               COUNT(*) as total,
-              SUM(CASE WHEN direction='up' THEN amount ELSE 0 END) as totalAmount
-       FROM votes WHERE postId IN (?)
-       GROUP BY postId`, [postIds]);
+              SUM(CASE WHEN direction='up' THEN amountSats ELSE 0 END) as totalAmount
+       FROM signal_votes WHERE signalId IN (?)
+       GROUP BY signalId`, [postIds]);
         const statsMap = new Map(voteRows.map((r) => [r.postId, r]));
         const postsWithStats = posts.map((post) => {
             const stats = statsMap.get(post.id) || { ups: 0, downs: 0, total: 0, totalAmount: 0 };
@@ -1003,7 +1003,7 @@ router.get('/trending', async (req, res) => {
  *   closesAt: ISO 8601 date (required, must be >= 48 hours in future)
  *   resolvesAt: ISO 8601 date (required, must be after closesAt)
  *   resolutionCriteria: string (required, max 1000 chars, specific)
- *   oracleProvider: string (required): polymarket, metaculus, betfair, etc.
+ *   oracleProvider: string (required): polymarket, metaculus, etc. (betfair: phase 5)
  *   oracleMarketId: string (required): external market ID for oracle polling
  */
 router.post('/markets', async (req, res) => {
@@ -1020,7 +1020,7 @@ router.post('/markets', async (req, res) => {
         if (!resolutionCriteria)
             return fail(res, 'resolutionCriteria required', 400);
         if (!oracleProvider)
-            return fail(res, 'oracleProvider required (e.g., polymarket, metaculus, betfair)', 400);
+            return fail(res, 'oracleProvider required (e.g., polymarket, metaculus)', 400);
         if (!oracleMarketId)
             return fail(res, 'oracleMarketId required (external market identifier)', 400);
         // Check for ambiguous language in title
@@ -1320,7 +1320,7 @@ router.post('/markets/:id/start-resolution', async (req, res) => {
  * POST /api/markets/:id/resolve
  *
  * Three-tier resolution (Phase 3):
- *   Tier 1 (oracle_auto): Query Polymarket/Betfair first — auto-settle if resolved
+ *   Tier 1 (oracle_auto): Query Polymarket first — auto-settle if resolved
  *   Tier 2 (consensus):   Outcome determined by stake-weighted consensus window
  *   Tier 3 (manual):      Fallback — resolver supplies outcome manually with evidence
  *
@@ -1494,10 +1494,10 @@ router.get('/stats', async (_req, res) => {
         const db = postService.db;
         const [agentCount, signalsToday, avgStake, earnings24h, totalCollected] = await Promise.all([
             db.get(`SELECT COUNT(*) as count FROM agents`),
-            db.get(`SELECT COUNT(*) as count FROM posts WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
-            db.get(`SELECT COALESCE(AVG(stakeAmount), 0) as avg FROM posts WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
-            db.get(`SELECT COALESCE(SUM(amount), 0) as total FROM votes WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR) AND direction = 'up'`),
-            db.get(`SELECT COALESCE(SUM(stakeAmount), 0) as total FROM posts`)
+            db.get(`SELECT COUNT(*) as count FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
+            db.get(`SELECT COALESCE(AVG(postingFeeSats), 0) as avg FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
+            db.get(`SELECT COALESCE(SUM(amount_sats), 0) as total FROM x402_payments WHERE paid_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
+            db.get(`SELECT COALESCE(SUM(postingFeeSats), 0) as total FROM signals`)
         ]);
         ok(res, {
             agents: agentCount?.count ?? 0,

@@ -8,7 +8,7 @@ import { useAuth } from '../hooks/useAuth'
 const MOCK_TXS = [
   { desc: 'quant-mesh → oracle-7 · odds query', amount: '50 sats', gold: false },
   { desc: 'anon-agent → scout · trace purchase', amount: '1,200 sats', gold: false },
-  { desc: 'henry → betfair-feed · rate query', amount: '50 sats', gold: false },
+  { desc: 'henry → polymarket-feed · rate query', amount: '50 sats', gold: false },
   { desc: 'stake · oracle-7 signal upvote', amount: '100 sats', gold: false },
   { desc: 'nLockTime release · kelly-job escrow', amount: '5,000 sats', gold: true },
 ]

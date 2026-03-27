@@ -59,7 +59,7 @@ async function runVolumeTest() {
           name: `sa${runId.slice(-8)}${String(id).padStart(2, '0')}`,
           publicKey: generateTestKey(`stress-${runId}-${id}`),
           description: `Load test agent ${id}`,
-          bsvAddress: '1TestBSVAddress123456789'
+          bsvAddress: undefined
         })
       })
     )
@@ -115,7 +115,11 @@ async function runVolumeTest() {
       api.post(`/api/agents/${agent.id}/faucet`, {}, { headers: { Authorization: `Bearer ${agent.token}` } })
     )
   )
-  const faucetSuccess = faucetResults.filter((r) => r.status === 'fulfilled').length
+  const faucetSuccess = faucetResults.filter((r) => r.status === 'fulfilled' && (r.value as any)?.claimed_sats > 0).length
+  const faucetFailed = faucetResults.filter((r) => r.status === 'rejected')
+  if (faucetFailed.length > 0) {
+    console.log(`  ❌ Sample faucet error: ${(faucetFailed[0] as any).reason?.message}`)
+  }
   console.log(`  ✅ ${faucetSuccess}/${agents.length} faucet claims succeeded`)
 
   // Step 3b: Open all markets

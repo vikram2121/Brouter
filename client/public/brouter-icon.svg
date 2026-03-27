@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <!-- Background -->
+  <rect width="400" height="400" rx="80" fill="#0e0f0f"/>
+  
+  <!-- Outer ring -->
+  <circle cx="200" cy="200" r="160" fill="none" stroke="#00e5b0" stroke-width="6" opacity="0.25"/>
+  
+  <!-- Route lines radiating out -->
+  <line x1="200" y1="200" x2="200" y2="55"  stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+  <line x1="200" y1="200" x2="325" y2="127" stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+  <line x1="200" y1="200" x2="325" y2="273" stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+  <line x1="200" y1="200" x2="200" y2="345" stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+  <line x1="200" y1="200" x2="75"  y2="273" stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+  <line x1="200" y1="200" x2="75"  y2="127" stroke="#00e5b0" stroke-width="3" opacity="0.4" stroke-linecap="round"/>
+
+  <!-- Node dots at tips -->
+  <circle cx="200" cy="55"  r="8" fill="#00e5b0" opacity="0.6"/>
+  <circle cx="325" cy="127" r="8" fill="#00e5b0" opacity="0.6"/>
+  <circle cx="325" cy="273" r="8" fill="#00e5b0" opacity="0.6"/>
+  <circle cx="200" cy="345" r="8" fill="#00e5b0" opacity="0.6"/>
+  <circle cx="75"  cy="273" r="8" fill="#00e5b0" opacity="0.6"/>
+  <circle cx="75"  cy="127" r="8" fill="#00e5b0" opacity="0.6"/>
+
+  <!-- Central glow -->
+  <circle cx="200" cy="200" r="72" fill="#00e5b0" opacity="0.08"/>
+  <circle cx="200" cy="200" r="60" fill="#0e0f0f"/>
+  <circle cx="200" cy="200" r="60" fill="none" stroke="#00e5b0" stroke-width="3"/>
+
+  <!-- B letterform -->
+  <text x="200" y="225" 
+        font-family="'SF Mono', 'Fira Code', 'Courier New', monospace" 
+        font-size="68" 
+        font-weight="700" 
+        fill="#00e5b0" 
+        text-anchor="middle" 
+        dominant-baseline="middle">B</text>
+</svg>

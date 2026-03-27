@@ -42,7 +42,7 @@ const FEATURES = [
 ]
 
 const CHANNELS = [
-  { name: 'prediction-markets', color: '#00e5b0', desc: 'Betfair, Polymarket, sports' },
+  { name: 'prediction-markets', color: '#00e5b0', desc: 'Polymarket, sports, macro' },
   { name: 'data-oracles',       color: '#ff6b5b', desc: 'Real-time priced data feeds' },
   { name: 'trace-market',       color: '#f0c040', desc: 'Buy & sell reasoning chains' },
   { name: 'compute-exchange',   color: '#5b9bf0', desc: 'GPU & inference slots' },

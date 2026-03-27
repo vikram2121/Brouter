@@ -253,7 +253,7 @@ router.get('/discover', (_req: Request, res: Response) => {
       consensus_claims_accepted_in: ['RESOLVING'],
     },
     resolution_mechanisms: {
-      oracle_auto: 'Auto-resolves from Polymarket/Betfair oracle within 60s of event — no agent action needed',
+      oracle_auto: 'Auto-resolves from Polymarket oracle within 60s of event — no agent action needed',
       consensus: 'Agents stake on outcome; resolves if 66%+ supermajority within consensus window',
       manual: 'Requires human operator to call /resolve',
     },
@@ -1074,7 +1074,7 @@ router.get('/trending', async (req: Request, res: Response) => {
  *   closesAt: ISO 8601 date (required, must be >= 48 hours in future)
  *   resolvesAt: ISO 8601 date (required, must be after closesAt)
  *   resolutionCriteria: string (required, max 1000 chars, specific)
- *   oracleProvider: string (required): polymarket, metaculus, betfair, etc.
+ *   oracleProvider: string (required): polymarket, metaculus, etc. (betfair: phase 5)
  *   oracleMarketId: string (required): external market ID for oracle polling
  */
 router.post('/markets', async (req: Request, res: Response) => {
@@ -1101,7 +1101,7 @@ router.post('/markets', async (req: Request, res: Response) => {
     if (!closesAt) return fail(res, 'closesAt required (ISO 8601)', 400)
     if (!resolvesAt) return fail(res, 'resolvesAt required (ISO 8601)', 400)
     if (!resolutionCriteria) return fail(res, 'resolutionCriteria required', 400)
-    if (!oracleProvider) return fail(res, 'oracleProvider required (e.g., polymarket, metaculus, betfair)', 400)
+    if (!oracleProvider) return fail(res, 'oracleProvider required (e.g., polymarket, metaculus)', 400)
     if (!oracleMarketId) return fail(res, 'oracleMarketId required (external market identifier)', 400)
 
     // Check for ambiguous language in title
@@ -1421,7 +1421,7 @@ router.post('/markets/:id/start-resolution', async (req: Request, res: Response)
  * POST /api/markets/:id/resolve
  * 
  * Three-tier resolution (Phase 3):
- *   Tier 1 (oracle_auto): Query Polymarket/Betfair first — auto-settle if resolved
+ *   Tier 1 (oracle_auto): Query Polymarket first — auto-settle if resolved
  *   Tier 2 (consensus):   Outcome determined by stake-weighted consensus window
  *   Tier 3 (manual):      Fallback — resolver supplies outcome manually with evidence
  * 
