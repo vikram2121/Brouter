@@ -157,47 +157,53 @@ export class X402Service {
       [txid, expectedLockingScript, expectedPriceSats]
     ).catch(() => {/* best-effort */})
 
-    // Broadcast to Anvil for SPV verification — async, non-blocking
+    // Verify tx on-chain via Anvil — async, non-blocking
+    // Consumer's wallet broadcasts to BSV network; we poll Anvil for BEEF proof
     // Data is served immediately; SPV result updates the DB record in background
-    this.broadcastToAnvilAsync(txid, proof.txhex, expectedLockingScript, expectedPriceSats)
+    this.verifyTxOnChainAsync(txid)
 
     return { valid: true, txid }
   }
 
   /**
-   * Broadcast tx to Anvil for SPV verification in the background.
+   * Verify tx on-chain via Anvil in the background.
+   * The consumer's wallet is responsible for broadcasting to the BSV network.
+   * We poll Anvil's GET /tx/{txid}/beef to confirm the tx has a real merkle proof.
+   *
+   * Polls up to 3 times with 30s intervals (~90s total window).
    * Updates x402_payments.spv_confirmed + confidence when result arrives.
    * Non-blocking — data was already served; this is for audit/fraud detection.
    */
-  private broadcastToAnvilAsync(
-    txid: string,
-    txhex: string,
-    lockingScript: string,
-    priceSats: number
-  ): void {
+  private verifyTxOnChainAsync(txid: string): void {
     if (!this.anvilService.enabled) return
 
-    this.anvilService.broadcastAndVerify(txhex).then(async (result) => {
-      const confirmed = result.ok && result.confidence !== 'rejected' ? 1 : 0
-      const confidence = result.confidence || (result.ok ? 'unknown' : 'rejected')
+    const poll = async (attemptsLeft: number): Promise<void> => {
+      const result = await this.anvilService.verifyTxOnChain(txid)
 
-      await this.db.run(
-        `UPDATE x402_payments
-         SET spv_confirmed = ?, confidence = ?, broadcast_at = NOW()
-         WHERE txid = ?`,
-        [confirmed, confidence, txid]
-      ).catch(() => {})
-
-      if (result.ok) {
-        console.log(`[X402Service] ✅ SPV broadcast accepted: txid=${txid} confidence=${confidence}`)
-      } else {
-        console.warn(`[X402Service] ⚠️ SPV broadcast rejected: txid=${txid} error=${result.error}`)
-        // Note: data was already served — rejection here is logged for fraud analysis
-        // Phase 4 will gate data delivery on SPV confirmation before serving
+      if (result.confirmed) {
+        await this.db.run(
+          `UPDATE x402_payments SET spv_confirmed = 1, confidence = 'confirmed', broadcast_at = NOW() WHERE txid = ?`,
+          [txid]
+        ).catch(() => {})
+        console.log(`[X402Service] ✅ SPV on-chain confirmed: txid=${txid}`)
+        return
       }
-    }).catch((err) => {
-      console.warn(`[X402Service] ⚠️ Anvil broadcast error (non-fatal): ${err.message}`)
-    })
+
+      if (attemptsLeft > 1) {
+        // Retry after 30s — tx may still be propagating
+        setTimeout(() => poll(attemptsLeft - 1), 30_000)
+      } else {
+        // All attempts exhausted — mark as unconfirmed for audit
+        await this.db.run(
+          `UPDATE x402_payments SET confidence = 'unconfirmed', broadcast_at = NOW() WHERE txid = ?`,
+          [txid]
+        ).catch(() => {})
+        console.warn(`[X402Service] ⚠️ SPV unconfirmed after 3 attempts: txid=${txid} — ${result.error}`)
+      }
+    }
+
+    // First check after 30s (give the consumer's wallet time to broadcast)
+    setTimeout(() => poll(3), 30_000)
   }
 
   /**

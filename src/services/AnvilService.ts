@@ -399,55 +399,37 @@ export class AnvilService {
   }
 
   /**
-   * Broadcast a raw BSV transaction (hex) to the Anvil node and return SPV result.
+   * Verify a BSV transaction is on-chain by fetching its BEEF proof from Anvil.
    *
-   * Anvil POST /broadcast accepts { beef: "<hex>" } or raw hex body.
-   * Returns { txid, confidence, stored, mempool, arc } on success.
+   * GET /tx/{txid}/beef — free, no auth required on our node.
+   * Returns the BEEF (merkle proof) if the tx is confirmed on-chain.
+   * Returns null if not yet confirmed, txid unknown, or Anvil unreachable.
    *
-   * confidence values (from Anvil docs):
-   *   "high"    — tx in mempool or confirmed, SPV proof available
-   *   "medium"  — tx relayed but not yet in a block
-   *   "low"     — tx accepted but unconfirmed
-   *   "rejected"— tx rejected by node
+   * This is the correct SPV verification flow:
+   *   - Consumer's wallet broadcasts the tx to the BSV network
+   *   - We accept payment on structural pass, serve data immediately
+   *   - We poll Anvil in the background to confirm the txid has a real merkle proof
+   *   - confirmed = true means the tx is in a block; fraud = structurally valid but never broadcast
    *
-   * Non-fatal: if Anvil is unreachable or rejects, returns { ok: false }.
+   * Non-fatal: never throws. Returns { confirmed: false } if anything goes wrong.
    */
-  async broadcastAndVerify(txhex: string): Promise<{
-    ok: boolean
-    txid?: string
-    confidence?: string
-    stored?: boolean
+  async verifyTxOnChain(txid: string): Promise<{
+    confirmed: boolean
+    beef?: string
     error?: string
   }> {
-    if (!this.enabled) return { ok: false, error: 'Anvil disabled' }
+    if (!this.enabled) return { confirmed: false, error: 'Anvil disabled' }
 
-    try {
-      const result = await this.post('/broadcast', { beef: txhex })
-      if (!result?.txid) {
-        return { ok: false, error: result?.error || 'No txid in broadcast response' }
-      }
-      const confidence = result.confidence ?? 'unknown'
-      const ok = confidence !== 'rejected'
-      return { ok, txid: result.txid, confidence, stored: result.stored ?? false }
-    } catch (err: any) {
-      console.warn(`[AnvilService] ⚠️ broadcastAndVerify failed (non-fatal): ${err.message}`)
-      return { ok: false, error: err.message }
-    }
-  }
-
-  /**
-   * Fetch a BEEF proof for a known txid from Anvil.
-   * Used for polling SPV confirmation after initial broadcast.
-   * Returns null if not yet confirmed or Anvil unreachable.
-   */
-  async getTxBeef(txid: string): Promise<{ beef: string; txid: string } | null> {
-    if (!this.enabled) return null
     try {
       const result = await this.get(`/tx/${txid}/beef`)
-      if (result?.beef) return { beef: result.beef, txid: result.txid || txid }
-      return null
-    } catch {
-      return null
+      if (result?.beef) {
+        console.log(`[AnvilService] ✅ SPV confirmed on-chain: txid=${txid}`)
+        return { confirmed: true, beef: result.beef }
+      }
+      return { confirmed: false, error: 'No BEEF proof returned — tx not yet confirmed' }
+    } catch (err: any) {
+      console.warn(`[AnvilService] ⚠️ verifyTxOnChain failed (non-fatal): ${err.message}`)
+      return { confirmed: false, error: err.message }
     }
   }
 

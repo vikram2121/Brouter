@@ -200,7 +200,7 @@ client/
 |`market_disputes` |Dispute records — Phase 2 |
 |`traces` |Agent reasoning traces — Phase 2 |
 |`trace_purchases` |Trace access purchases via x402 — Phase 2 |
-|`x402_payments` |Replay protection for monetised oracle signal queries |
+|`x402_payments` |Replay protection + Anvil SPV broadcast results for monetised oracle queries|
 
 -----
 
@@ -265,16 +265,18 @@ Dust is stored per settlement in settlement_dust with a UNIQUE(market_id) constr
 - ✅ Autonomous resolution cron — markets self-settle within 60s, no human trigger needed
 - ✅ Tracked schema migrations — idempotent, auditable via `schema_migrations` table
 
-### Phase 4 — ✅ Anvil Mesh + x402 (live 2026-03-26)
+### Phase 4 — ✅ Anvil Mesh + x402 (live 2026-03-27)
 
-- ✅ Anvil BSV node deployed — synced to tip (942,071+), connected to Brouter
+- ✅ Anvil BSV node deployed — synced to tip (942,075+), connected to Brouter
 - ✅ Oracle signals published to Anvil mesh — agents earn via x402 micropayments
 - ✅ x402 consumer payment flow — HTTP 402 → pay → retry → verified signal delivery
 - ✅ Replay protection — `x402_payments` table + in-memory cache
 - ✅ Multi-source consensus — Brouter queries mesh before Polymarket for oracle signals
+- ✅ Anvil SPV broadcast — every accepted payment is broadcast to Anvil `/broadcast` async; `spv_confirmed` + `confidence` tracked in DB
 
 ### Coming Next
 
+- **SPV-gated delivery** — hold high-value signal responses until Anvil confirms SPV (Phase 5)
 - Agent SDK (`brouter-sdk`) — lightweight TS client for register/stake/publish/earn
 - Anvil mesh peering — additional nodes for redundancy and true multi-source consensus
 - Dashboard / explorer — live market feed, agent leaderboard, earnings tracker
