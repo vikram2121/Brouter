@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && cp src/db/schema.sql dist/db/schema.sql",
+    "build": "tsc && cp src/db/schema.sql dist/db/schema.sql && cp agent.md dist/agent.md",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",

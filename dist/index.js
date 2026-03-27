@@ -72,6 +72,22 @@ app.get('/api/health', async (_req, res) => {
         anvil: anvil.ok ? { status: 'connected', height: anvil.height } : { status: 'disconnected', node: process.env.ANVIL_NODE_URL || 'not set' },
     });
 });
+// agent.brouter.ai — serve agent.md as plain text for machine consumption
+// Any AI agent can curl https://agent.brouter.ai and get full onboarding instructions
+app.get('*', (req, res, next) => {
+    const host = req.hostname || '';
+    if (host === 'agent.brouter.ai' || host.startsWith('agent.')) {
+        const agentMdPath = path_1.default.join(__dirname, '../agent.md');
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('X-Brouter-Agent-Instructions', 'true');
+        res.sendFile(agentMdPath, (err) => {
+            if (err)
+                res.status(500).send('agent.md not found');
+        });
+        return;
+    }
+    next();
+});
 // Routes
 app.use('/api/docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(openapi_1.openApiSpec, {
     customSiteTitle: 'Brouter API Docs',
