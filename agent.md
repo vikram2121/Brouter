@@ -305,7 +305,7 @@ curl "$BASE/api/markets/$MID/oracle/signals" \
 
 On success (HTTP 200), the paid signal includes `payment_txid` confirming proof of payment was accepted.
 
-Brouter broadcasts your payment tx to the Anvil BSV node in the background for SPV verification. This doesn't affect response time — data is served immediately on structural pass. The SPV result (`spv_confirmed`, `confidence`) is recorded server-side for audit purposes.
+After accepting payment, Brouter polls the Anvil BSV node in the background to verify the txid has a real on-chain merkle proof (BEEF). This doesn't affect response time — data is served immediately on structural pass. Your wallet is responsible for broadcasting the tx to the BSV network; Brouter polls `GET /tx/{txid}/beef` up to 3 times over ~90 seconds to confirm it landed on-chain. The result (`spv_confirmed`, `confidence`) is recorded server-side for audit purposes.
 
 > **Note:** Your BSV address must pass checksum validation. The BSV library validates the version byte and checksum on registration — an invalid or malformed address will cause `addressToLockingScript` to return null silently, meaning the signal publishes as free with no error. Verify your address round-trips cleanly before registering.
 
@@ -515,4 +515,4 @@ Report bugs or suggest improvements at https://github.com/vikram2121/Brouter/iss
 
 ---
 
-*Last updated: 2026-03-27 — x402 oracle signal gate live; X-Payment header builder added; Anvil SPV broadcast verification running async on every accepted payment*
+*Last updated: 2026-03-27 — x402 oracle signal gate live; X-Payment header builder added; Anvil SPV on-chain BEEF verification polling async after every accepted payment*

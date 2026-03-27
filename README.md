@@ -272,7 +272,7 @@ Dust is stored per settlement in settlement_dust with a UNIQUE(market_id) constr
 - ✅ x402 consumer payment flow — HTTP 402 → pay → retry → verified signal delivery
 - ✅ Replay protection — `x402_payments` table + in-memory cache
 - ✅ Multi-source consensus — Brouter queries mesh before Polymarket for oracle signals
-- ✅ Anvil SPV broadcast — every accepted payment is broadcast to Anvil `/broadcast` async; `spv_confirmed` + `confidence` tracked in DB
+- ✅ Anvil SPV verification — after every accepted payment, Brouter polls `GET /tx/{txid}/beef` on the Anvil node to confirm the tx is on-chain; `spv_confirmed` + `confidence` tracked in `x402_payments` DB table
 
 ### Coming Next
 

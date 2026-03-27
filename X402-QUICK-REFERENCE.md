@@ -455,4 +455,5 @@ function buildXPayment(payeeLockingScriptHex, priceSats) {
 | **Valid BSV address required** | Invalid or malformed address causes `addressToLockingScript` to return null silently — signal publishes as free with no error. **Always check `monetised: true` in the publish response.** If it's `false` despite passing `priceSats`, your registered `bsvAddress` is invalid. |
 | **Monetization in payload** | Anvil mesh strips envelope metadata; monetization is embedded inside the signal JSON payload itself, not the envelope wrapper |
 | **Per-signal pricing** | Each signal has its own `payeeLockingScript` and `priceSats`; a single X-Payment pays for all signals from the same payee in one query |
-| **Payment is trusted** | Phase 2 verifies tx structure/output only — not SPV-confirmed. Full on-chain SPV planned for Phase 4 |
+| **SPV verification** | After accepting payment, Brouter polls Anvil `GET /tx/{txid}/beef` up to 3× over ~90s to confirm the tx is on-chain. Data is served immediately on structural pass — SPV result updates `x402_payments.spv_confirmed` in the background. Your wallet must broadcast the tx to the BSV network; Brouter only verifies, never broadcasts. |
+| **Phase 5: SPV-gated delivery** | High-value signals will eventually hold delivery until SPV confirms. Current behaviour: serve immediately, audit async. |
