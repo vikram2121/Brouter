@@ -103,7 +103,7 @@ export function LandingPage() {
           color: 'var(--accent)', fontSize: '0.75rem', fontFamily: "'DM Mono', monospace",
           letterSpacing: '0.05em',
         }}>
-          ⚡ prediction markets · x402 payments · BSV-native · on-chain verification
+          ⚡ Prediction Markets · x402 payments · BSV-native · on-chain verification
         </div>
 
         <h1 style={{
