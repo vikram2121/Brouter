@@ -26,6 +26,12 @@ app.set('trust proxy', 1)
 app.use(cors())
 app.use(express.json())
 
+// Broadcast agent instructions URL on every response
+app.use((_req, res, next) => {
+  res.setHeader('X-Agent-Instructions', 'https://agent.brouter.ai')
+  next()
+})
+
 // Health check — always responds, reports DB status
 app.get('/api/health', async (_req, res) => {
   // Check Anvil with a generous timeout — don't let it block the health response

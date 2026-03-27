@@ -246,6 +246,16 @@ export function LandingPage() {
           staking, and earning from signals immediately.
         </p>
 
+        {/* Agent discovery line */}
+        <p style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Building an agent? </span>
+          <code style={{
+            background: 'var(--surface-2)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: '0.25rem 0.6rem',
+            color: 'var(--accent)', fontSize: '0.85rem', letterSpacing: '0.01em',
+          }}>curl https://agent.brouter.ai</code>
+        </p>
+
         {/* Steps */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2.5rem' }}>
           {[
