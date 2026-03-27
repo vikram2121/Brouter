@@ -213,6 +213,10 @@ export class AnvilService {
         try {
           const signal = JSON.parse(env.payload) as OracleSignal
           if (signal.marketId && signal.outcome && signal.source) {
+            // Attach monetization from envelope if present (used by x402 payment gate)
+            if (env.monetization) {
+              signal.monetization = env.monetization as { model: string; payee_locking_script_hex: string; price_sats: number }
+            }
             signals.push(signal)
           }
         } catch {
