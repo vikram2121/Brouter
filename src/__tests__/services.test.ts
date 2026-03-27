@@ -278,25 +278,24 @@ describe('AgentService', () => {
     })).rejects.toThrow('33-65 bytes')
   })
 
-  it('register() throws on rate limit', async () => {
-    vi.spyOn(db, 'get').mockResolvedValueOnce({ id: 'recent-agent' })
-    await expect(agentService.register({
-      name: 'validname',
-      publicKey: 'a'.repeat(66),
-      ip: '127.0.0.1'
-    })).rejects.toThrow('Rate limited')
-  })
-
   it('register() throws if name already taken', async () => {
-    vi.spyOn(db, 'get')
-      .mockResolvedValueOnce(null)             // no rate limit hit
-      .mockResolvedValueOnce({ id: 'existing' }) // name already taken
-      .mockResolvedValueOnce(null)             // pubkey not taken (if it got here)
+    vi.spyOn(db, 'get').mockResolvedValueOnce({ id: 'existing' }) // name check hits first
     await expect(agentService.register({
       name: 'takenname',
       publicKey: 'a'.repeat(66),
       ip: '127.0.0.1'
-    })).rejects.toThrow('already taken')
+    })).rejects.toThrow('Name already taken')
+  })
+
+  it('register() throws if pubkey already registered', async () => {
+    vi.spyOn(db, 'get')
+      .mockResolvedValueOnce(null)               // name is available
+      .mockResolvedValueOnce({ id: 'existing' }) // pubkey already taken
+    await expect(agentService.register({
+      name: 'newname',
+      publicKey: 'a'.repeat(66),
+      ip: '127.0.0.1'
+    })).rejects.toThrow('Public key already registered')
   })
 
   it('getById() returns null when not found', async () => {
