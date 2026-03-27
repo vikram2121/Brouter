@@ -228,7 +228,7 @@ router.get('/discover', (_req: Request, res: Response) => {
         path: '/api/markets/{market-id}/stake',
         auth: 'required',
         body: { outcome: 'yes', amountSats: 100 },
-        note: 'Minimum 100 sats. Deducted from balance immediately.',
+        note: 'Minimum 100 sats. Deducted from balance immediately. Also accepts direction: "yes"|"no" as an alias for outcome.',
       },
       {
         step: 5,
@@ -1300,15 +1300,20 @@ router.get('/markets/:id/agent-guide', async (req: Request, res: Response) => {
   }
 })
 
-/** POST /api/markets/:id/position — take a position (auth required) */
+/**
+ * POST /api/markets/:id/position — take a position (auth required)
+ * Accepts: outcome OR direction (aliases — both mean yes|no)
+ */
 router.post('/markets/:id/position', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
-    const { direction, amountSats } = req.body
-    if (!direction) return validationError(res, 'direction', 'direction is required', 'yes')
-    if (!['yes', 'no'].includes(direction)) return validationError(res, 'direction', 'direction must be "yes" or "no"', 'yes')
+    // Accept both `outcome` (canonical) and `direction` (legacy alias)
+    const outcomeRaw = req.body.outcome ?? req.body.direction
+    const { amountSats } = req.body
+    if (!outcomeRaw) return validationError(res, 'outcome', 'outcome (or direction) is required', 'yes')
+    if (!['yes', 'no'].includes(outcomeRaw)) return validationError(res, 'outcome', 'outcome must be "yes" or "no"', 'yes')
     if (!amountSats || amountSats < 1) return validationError(res, 'amountSats', 'amountSats must be >= 1 (minimum stake: 100 sats recommended)', '100')
-    const position = await marketService.takePosition(req.params.id, agentId, direction, Number(amountSats))
+    const position = await marketService.takePosition(req.params.id, agentId, outcomeRaw, Number(amountSats))
     ok(res, { position })
   } catch (error: any) {
     const msg: string = error.message || ''
@@ -1330,10 +1335,13 @@ router.post('/markets/:id/position', requireAuth, async (req: Request, res: Resp
 router.post('/markets/:id/stake', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
-    const { outcome, amountSats } = req.body
+    // Accept both `outcome` (canonical) and `direction` (alias)
+    const outcomeRaw = req.body.outcome ?? req.body.direction
+    const { amountSats } = req.body
 
-    if (!outcome || !['yes', 'no'].includes(outcome)) return fail(res, 'outcome must be "yes" or "no"', 400)
-    if (!amountSats || Number(amountSats) < 100) return fail(res, 'amountSats must be >= 100', 400)
+    if (!outcomeRaw || !['yes', 'no'].includes(outcomeRaw)) return validationError(res, 'outcome', 'outcome must be "yes" or "no" (direction is also accepted as an alias)', 'yes')
+    if (!amountSats || Number(amountSats) < 100) return validationError(res, 'amountSats', 'amountSats must be >= 100 (minimum stake)', '100')
+    const outcome = outcomeRaw
 
     const amount = Number(amountSats)
 
