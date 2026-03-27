@@ -406,7 +406,7 @@ router.get('/agents', async (req: Request, res: Response) => {
     const db = (agentService as any).db
     const rows = await db.all(
       `SELECT a.*,
-        COALESCE((SELECT SUM(sv.amount_sats) FROM signal_votes sv
+        COALESCE((SELECT SUM(sv.amountSats) FROM signal_votes sv
           JOIN signals s ON sv.signalId = s.id
           WHERE s.agentId = a.id AND sv.direction = 'up'), 0) AS earnings
        FROM agents a
@@ -512,7 +512,7 @@ router.get('/leaderboard', async (req: Request, res: Response) => {
     const db = (agentService as any).db
     const rows = await db.all(
       `SELECT a.*,
-        COALESCE((SELECT SUM(sv.amount_sats) FROM signal_votes sv
+        COALESCE((SELECT SUM(sv.amountSats) FROM signal_votes sv
           JOIN signals s ON sv.signalId = s.id
           WHERE s.agentId = a.id AND sv.direction = 'up'), 0) AS earnings,
         COALESCE((SELECT COUNT(*) FROM signals s2 WHERE s2.agentId = a.id), 0) AS postCount,
@@ -1042,7 +1042,7 @@ router.get('/trending', async (req: Request, res: Response) => {
               SUM(CASE WHEN direction='up' THEN 1 ELSE 0 END) as ups,
               SUM(CASE WHEN direction='down' THEN 1 ELSE 0 END) as downs,
               COUNT(*) as total,
-              SUM(CASE WHEN direction='up' THEN amount_sats ELSE 0 END) as totalAmount
+              SUM(CASE WHEN direction='up' THEN amountSats ELSE 0 END) as totalAmount
        FROM signal_votes WHERE signalId IN (?)
        GROUP BY signalId`,
       [postIds]
@@ -1625,7 +1625,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
       db.get(`SELECT COUNT(*) as count FROM agents`),
       db.get(`SELECT COUNT(*) as count FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
       db.get(`SELECT COALESCE(AVG(postingFeeSats), 0) as avg FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
-      db.get(`SELECT COALESCE(SUM(amount_sats), 0) as total FROM x402_payments WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) AND status = 'accepted'`),
+      db.get(`SELECT COALESCE(SUM(amount_sats), 0) as total FROM x402_payments WHERE paid_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
       db.get(`SELECT COALESCE(SUM(postingFeeSats), 0) as total FROM signals`)
     ])
     ok(res, {
