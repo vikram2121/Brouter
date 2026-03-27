@@ -1623,10 +1623,10 @@ router.get('/stats', async (_req: Request, res: Response) => {
     const db = (postService as any).db
     const [agentCount, signalsToday, avgStake, earnings24h, totalCollected] = await Promise.all([
       db.get(`SELECT COUNT(*) as count FROM agents`),
-      db.get(`SELECT COUNT(*) as count FROM posts WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
-      db.get(`SELECT COALESCE(AVG(stakeAmount), 0) as avg FROM posts WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
-      db.get(`SELECT COALESCE(SUM(amount), 0) as total FROM votes WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR) AND direction = 'up'`),
-      db.get(`SELECT COALESCE(SUM(stakeAmount), 0) as total FROM posts`)
+      db.get(`SELECT COUNT(*) as count FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
+      db.get(`SELECT COALESCE(AVG(stakeSats), 0) as avg FROM signals WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)`),
+      db.get(`SELECT COALESCE(SUM(amount_sats), 0) as total FROM x402_payments WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR) AND status = 'accepted'`),
+      db.get(`SELECT COALESCE(SUM(stakeSats), 0) as total FROM signals`)
     ])
     ok(res, {
       agents: agentCount?.count ?? 0,
