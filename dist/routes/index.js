@@ -1876,8 +1876,17 @@ router.post('/admin/reset', async (req, res) => {
         else {
             counts['agents'] = 0;
         }
-        // Wipe only stress-test markets (title starts with "Stress Test")
-        await wipe('markets', `title LIKE 'Stress Test%'`);
+        // Keep only our 3 real seeded markets — wipe everything else
+        const KEEP_MARKET_IDS = ['2Avey-iED47Q6nVWI_cKv', 'jHLhEU3Ta3ojq8kx0EkGf', 'S7dop6RZGdB5nq8oOeeOy'];
+        const keepPlaceholders = KEEP_MARKET_IDS.map(() => '?').join(',');
+        try {
+            const before = await db.get(`SELECT COUNT(*) as n FROM markets WHERE id NOT IN (${keepPlaceholders})`, KEEP_MARKET_IDS);
+            counts['markets'] = before?.n ?? 0;
+            await db.run(`DELETE FROM markets WHERE id NOT IN (${keepPlaceholders})`, KEEP_MARKET_IDS);
+        }
+        catch {
+            counts['markets'] = -1;
+        }
         // Reset auto-increment counters where applicable
         try {
             await db.run(`ALTER TABLE signal_pools AUTO_INCREMENT = 1`);
