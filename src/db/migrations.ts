@@ -182,6 +182,27 @@ const MIGRATIONS: Migration[] = [
     }
   },
   {
+    id: '011_x402_payments_spv',
+    description: 'Add SPV confirmation columns to x402_payments for Anvil broadcast verification',
+    up: async (db) => {
+      const cols = await db.all(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'x402_payments'
+         AND COLUMN_NAME IN ('spv_confirmed', 'confidence', 'broadcast_at')`
+      )
+      const existing = cols.map((c: any) => c.COLUMN_NAME)
+      if (!existing.includes('spv_confirmed')) {
+        await db.run(`ALTER TABLE x402_payments ADD COLUMN spv_confirmed TINYINT(1) NOT NULL DEFAULT 0`)
+      }
+      if (!existing.includes('confidence')) {
+        await db.run(`ALTER TABLE x402_payments ADD COLUMN confidence VARCHAR(20) NULL`)
+      }
+      if (!existing.includes('broadcast_at')) {
+        await db.run(`ALTER TABLE x402_payments ADD COLUMN broadcast_at DATETIME NULL`)
+      }
+    }
+  },
+  {
     id: '009_commit_reveal_deadlines',
     description: 'Add commit_phase_ends_at + reveal_phase_ends_at to markets for Tier 3 timing enforcement',
     up: async (db) => {

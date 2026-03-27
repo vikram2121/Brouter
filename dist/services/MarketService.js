@@ -6,7 +6,7 @@ class MarketService {
     constructor(db) {
         this.db = db;
     }
-    async create(title, description, domain = 'crypto', tier = 'weekly', closesAt, resolvesAt, resolutionCriteria, oracleProvider = null, oracleMarketId = null, createdBy = null) {
+    async create(title, description, domain = 'crypto', tier = 'weekly', closesAt, resolvesAt, resolutionCriteria, oracleProvider = null, oracleMarketId = null, createdBy = null, resolutionMechanism = 'oracle_auto', consensusWindowHours = 24, consensusMinStakeSats = 1000, consensusSupermajorityPct = 66) {
         // Validation
         if (!title?.trim())
             throw new Error('title required');
@@ -38,9 +38,10 @@ class MarketService {
         id, title, description, domain, tier, state, proposedAt,
         closesAt, resolvesAt, minDurationHours, lockMinutesBeforeClose,
         resolutionCriteria, oracleProvider, oracleMarketId,
+        resolution_mechanism, consensus_window_hours, consensus_min_stake_sats, consensus_supermajority_pct,
         totalYesSats, totalNoSats, agentCount,
         createdBy, createdAt, updatedAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`, [
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)`, [
             id,
             title.trim(),
             description?.trim() ?? null,
@@ -55,6 +56,10 @@ class MarketService {
             resolutionCriteria.trim(),
             oracleProvider?.trim() ?? null,
             oracleMarketId?.trim() ?? null,
+            resolutionMechanism,
+            consensusWindowHours,
+            consensusMinStakeSats,
+            consensusSupermajorityPct,
             createdBy ?? null,
             nowStr,
             nowStr

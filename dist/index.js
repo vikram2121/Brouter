@@ -46,21 +46,30 @@ const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
 const connection_1 = require("./db/connection");
 const routes_1 = __importDefault(require("./routes"));
 const openapi_1 = require("./openapi");
+const ResolutionCron_1 = require("./services/ResolutionCron");
+const AnvilService_1 = require("./services/AnvilService");
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 let dbReady = false;
+const anvilService = new AnvilService_1.AnvilService();
 // Trust proxy (required for correct IP extraction behind nginx/load balancer)
 app.set('trust proxy', 1);
 // Middleware
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 // Health check — always responds, reports DB status
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
+    // Check Anvil with a generous timeout — don't let it block the health response
+    const anvil = await Promise.race([
+        anvilService.healthCheck(),
+        new Promise((r) => setTimeout(() => r({ ok: false }), 8000)),
+    ]);
     res.status(200).json({
         status: 'ok',
         db: dbReady ? 'connected' : 'connecting',
         env: process.env.NODE_ENV || 'development',
+        anvil: anvil.ok ? { status: 'connected', height: anvil.height } : { status: 'disconnected', node: process.env.ANVIL_NODE_URL || 'not set' },
     });
 });
 // Routes
@@ -102,6 +111,12 @@ const start = async () => {
                 await connection_1.db.initialize();
                 dbReady = true;
                 console.log('✅ Database connected');
+                // Start autonomous resolution cron (60s interval)
+                const cron = new ResolutionCron_1.ResolutionCron(connection_1.db);
+                const cronHandle = cron.start(60000);
+                // Stop cron on graceful shutdown
+                process.on('SIGINT', () => clearInterval(cronHandle));
+                process.on('SIGTERM', () => clearInterval(cronHandle));
                 return;
             }
             catch (error) {

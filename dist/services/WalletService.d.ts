@@ -1,6 +1,7 @@
 /**
  * WalletService
- * Handles BSV wallet operations: balance checking, faucet sends, payout transactions
+ * Handles real BSV transactions: faucet sends, future settlement payouts.
+ * Uses bsv library for signing + WhatsOnChain for UTXO fetching and broadcast.
  */
 export interface UTXO {
     txid: string;
@@ -9,17 +10,13 @@ export interface UTXO {
     script: string;
 }
 export declare class WalletService {
-    private privateKeyHex;
-    private walletAddress;
-    private network;
+    private wif;
+    private address;
     constructor();
-    /**
-     * Get Brouter's wallet address
-     */
     getAddress(): string;
+    isConfigured(): boolean;
     /**
-     * Get wallet balance from BSV API
-     * Uses WhatsOnChain API for balance queries (free, no auth needed)
+     * Get wallet balance from WhatsOnChain
      */
     getBalance(): Promise<{
         confirmed: number;
@@ -27,34 +24,19 @@ export declare class WalletService {
         total: number;
     }>;
     /**
-     * Get UTXOs for the Brouter wallet
-     * Used for building transactions
+     * Fetch UTXOs from WhatsOnChain
      */
     getUTXOs(): Promise<UTXO[]>;
     /**
-     * Send BSV to a recipient address
-     * Used for faucet claims and settlement payouts
+     * Send BSV to a recipient address.
+     * Builds a real P2PKH transaction, signs it, and broadcasts via WhatsOnChain.
+     * Falls back to mock TXID if wallet not configured (dev/test mode).
      *
-     * @param to Recipient BSV address
+     * @param to   Recipient BSV address
      * @param amountSats Amount in satoshis
-     * @param data Optional OP_RETURN data (as array of buffers)
-     * @returns Transaction TXID
+     * @returns Real transaction TXID (or mock_ prefix in mock mode)
      */
-    sendBSV(to: string, amountSats: number, data?: Buffer[]): Promise<string>;
-    /**
-     * Send BSV to multiple recipients in a single transaction (batching for efficiency)
-     *
-     * @param recipients Array of {address, satoshis}
-     * @returns Transaction TXID
-     */
-    batchSend(recipients: Array<{
-        address: string;
-        satoshis: number;
-    }>): Promise<string>;
-    /**
-     * Generate mock TXID (for testing; replace with real broadcast in Phase 2)
-     */
-    private generateMockTxid;
+    sendBSV(to: string, amountSats: number): Promise<string>;
 }
 export declare const walletService: WalletService;
 //# sourceMappingURL=WalletService.d.ts.map

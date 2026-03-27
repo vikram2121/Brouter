@@ -14,6 +14,19 @@
  *
  * Non-fatal: all methods log errors but never throw — Brouter continues
  * operating normally if Anvil is unreachable.
+ *
+ * ⚠️  IMPORTANT — Anvil round-trip behaviour:
+ *   Anvil nodes store and return only: type, topic, payload, signature, pubkey, ttl, timestamp.
+ *   The `monetization` field on the envelope is NOT persisted and NOT returned on query.
+ *   Therefore, monetization data MUST be embedded inside the JSON payload string itself
+ *   (see publishOracleSignal — it builds `enrichedPayload` with `monetization` inside).
+ *   queryOracleSignals reads monetization from parsedPayload.monetization, not env.monetization.
+ *
+ * ⚠️  IMPORTANT — BSV address validation:
+ *   addressToLockingScript() uses the BSV library which validates the version byte + checksum.
+ *   An invalid or malformed address returns null silently — monetization is not built and the
+ *   signal publishes as free with no error or warning logged.
+ *   Always verify the address round-trips cleanly: bsv.Address.fromString(addr).toString() === addr
  */
 
 import https from 'https'
@@ -382,6 +395,59 @@ export class AnvilService {
       return { ok: true, height: status?.headers?.height }
     } catch {
       return { ok: false }
+    }
+  }
+
+  /**
+   * Broadcast a raw BSV transaction (hex) to the Anvil node and return SPV result.
+   *
+   * Anvil POST /broadcast accepts { beef: "<hex>" } or raw hex body.
+   * Returns { txid, confidence, stored, mempool, arc } on success.
+   *
+   * confidence values (from Anvil docs):
+   *   "high"    — tx in mempool or confirmed, SPV proof available
+   *   "medium"  — tx relayed but not yet in a block
+   *   "low"     — tx accepted but unconfirmed
+   *   "rejected"— tx rejected by node
+   *
+   * Non-fatal: if Anvil is unreachable or rejects, returns { ok: false }.
+   */
+  async broadcastAndVerify(txhex: string): Promise<{
+    ok: boolean
+    txid?: string
+    confidence?: string
+    stored?: boolean
+    error?: string
+  }> {
+    if (!this.enabled) return { ok: false, error: 'Anvil disabled' }
+
+    try {
+      const result = await this.post('/broadcast', { beef: txhex })
+      if (!result?.txid) {
+        return { ok: false, error: result?.error || 'No txid in broadcast response' }
+      }
+      const confidence = result.confidence ?? 'unknown'
+      const ok = confidence !== 'rejected'
+      return { ok, txid: result.txid, confidence, stored: result.stored ?? false }
+    } catch (err: any) {
+      console.warn(`[AnvilService] ⚠️ broadcastAndVerify failed (non-fatal): ${err.message}`)
+      return { ok: false, error: err.message }
+    }
+  }
+
+  /**
+   * Fetch a BEEF proof for a known txid from Anvil.
+   * Used for polling SPV confirmation after initial broadcast.
+   * Returns null if not yet confirmed or Anvil unreachable.
+   */
+  async getTxBeef(txid: string): Promise<{ beef: string; txid: string } | null> {
+    if (!this.enabled) return null
+    try {
+      const result = await this.get(`/tx/${txid}/beef`)
+      if (result?.beef) return { beef: result.beef, txid: result.txid || txid }
+      return null
+    } catch {
+      return null
     }
   }
 

@@ -30,7 +30,7 @@ export interface MarketPosition {
 export declare class MarketService {
     private db;
     constructor(db: any);
-    create(title: string, description: string | null, domain: "crypto" | "macro" | "sports" | "politics" | "science" | "agent-meta" | undefined, tier: "rapid" | "weekly" | "anchor" | undefined, closesAt: Date, resolvesAt: Date, resolutionCriteria: string, oracleProvider?: string | null, oracleMarketId?: string | null, createdBy?: string | null): Promise<Market>;
+    create(title: string, description: string | null, domain: "crypto" | "macro" | "sports" | "politics" | "science" | "agent-meta" | undefined, tier: "rapid" | "weekly" | "anchor" | undefined, closesAt: Date, resolvesAt: Date, resolutionCriteria: string, oracleProvider?: string | null, oracleMarketId?: string | null, createdBy?: string | null, resolutionMechanism?: 'oracle_auto' | 'consensus' | 'manual', consensusWindowHours?: number, consensusMinStakeSats?: number, consensusSupermajorityPct?: number): Promise<Market>;
     list(tier?: string, domain?: string, state?: string, limit?: number): Promise<Market[]>;
     get(id: string): Promise<Market | null>;
     getPositions(marketId: string): Promise<MarketPosition[]>;

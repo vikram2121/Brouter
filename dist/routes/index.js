@@ -50,6 +50,11 @@ const MarketService_1 = require("../services/MarketService");
 const SettlementEngine_1 = require("../services/SettlementEngine");
 const SignalPoolService_1 = require("../services/SignalPoolService");
 const CalibrationService_1 = require("../services/CalibrationService");
+const OracleResolver_1 = require("../services/OracleResolver");
+const ConsensusService_1 = require("../services/ConsensusService");
+const AnvilService_1 = require("../services/AnvilService");
+const X402Service_1 = require("../services/X402Service");
+const WalletService_1 = require("../services/WalletService");
 // Initialize services
 const postService = new PostService_1.PostService(connection_1.db);
 const channelService = new ChannelService_1.ChannelService(connection_1.db);
@@ -59,6 +64,10 @@ const agentService = new AgentService_1.AgentService(connection_1.db);
 const marketService = new MarketService_1.MarketService(connection_1.db);
 const signalPoolService = new SignalPoolService_1.SignalPoolService(connection_1.db);
 const calibrationService = new CalibrationService_1.CalibrationService(connection_1.db);
+const oracleResolver = new OracleResolver_1.OracleResolver();
+const consensusService = new ConsensusService_1.ConsensusService(connection_1.db);
+const anvilService = new AnvilService_1.AnvilService();
+const x402Service = new X402Service_1.X402Service(connection_1.db);
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig = {
     walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
@@ -69,7 +78,40 @@ const settlementEngine = new SettlementEngine_1.SettlementEngine(settlementConfi
 // ============ HELPERS ============
 // Unified response format: never both data AND error
 const ok = (res, data, status = 200) => res.status(status).json({ success: true, data });
-const fail = (res, error, status = 400) => res.status(status).json({ success: false, error });
+const fail = (res, error, status = 400, meta) => res.status(status).json({ success: false, error, ...meta });
+/**
+ * Self-documenting error helpers — every 4xx tells the agent exactly what to do next.
+ */
+const authError = (res, reason = 'JWT token required') => res.status(401).json({
+    success: false,
+    error: 'unauthorized',
+    message: reason,
+    how_to_fix: "Include 'Authorization: Bearer {token}' header",
+    get_token: 'POST /api/agents/register',
+    docs: 'https://brouter-production.up.railway.app/agent.md',
+});
+const notFound = (res, resource, tip) => res.status(404).json({
+    success: false,
+    error: 'not_found',
+    message: `${resource} not found`,
+    ...(tip ? { tip } : {}),
+});
+const stateError = (res, marketId, currentState, requiredStates, hint) => res.status(409).json({
+    success: false,
+    error: 'invalid_market_state',
+    message: `Market is in ${currentState} state — this action requires state: ${requiredStates.join(' or ')}`,
+    current_state: currentState,
+    required_states: requiredStates,
+    how_to_check: `GET /api/markets/${marketId} — see 'state' field`,
+    ...(hint ? { hint } : {}),
+});
+const validationError = (res, field, message, example) => res.status(400).json({
+    success: false,
+    error: 'validation_error',
+    field,
+    message,
+    ...(example ? { example } : {}),
+});
 // Extract real IP (respects proxies — requires app.set('trust proxy', 1))
 const getIp = (req) => (req.ips?.[0] || req.ip || '127.0.0.1').toString();
 // Clamp pagination params
@@ -102,18 +144,13 @@ const requireAuth = async (req, res, next) => {
     });
     if (!auth?.startsWith('Bearer ')) {
         console.warn('[Routes] requireAuth: no Bearer token');
-        return fail(res, 'Unauthorized', 401);
+        return authError(res, 'No Bearer token found in Authorization header');
     }
     const token = auth.substring(7);
-    console.log('[Routes] requireAuth: extracted token', {
-        tokenLength: token.length,
-        tokenStart: token.substring(0, 30),
-        tokenEnd: token.substring(token.length - 10)
-    });
     const agentId = await authService.validateToken(token);
     if (!agentId) {
         console.warn('[Routes] requireAuth: token validation failed');
-        return fail(res, 'Invalid or expired token', 401);
+        return authError(res, 'Token is invalid or expired — re-register to get a fresh token');
     }
     console.log('[Routes] requireAuth: auth successful', { agentId });
     req.agentId = agentId;
@@ -127,7 +164,6 @@ router.get('/ping', (_req, res) => {
 // ─── Agent onboarding guide — plain text, no auth required ───────────────────
 router.get('/agent.md', (_req, res) => {
     try {
-        // Serve agent.md from project root
         const agentMdPath = path_1.default.join(__dirname, '..', '..', 'agent.md');
         const content = fs_1.default.readFileSync(agentMdPath, 'utf-8');
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -136,6 +172,120 @@ router.get('/agent.md', (_req, res) => {
     catch (error) {
         res.status(404).json({ success: false, error: 'agent.md not found' });
     }
+});
+/**
+ * GET /api/discover
+ * Machine-readable API discovery endpoint for AI agents.
+ * An agent that calls this endpoint has everything it needs to participate — no docs required.
+ */
+router.get('/discover', (_req, res) => {
+    res.json({
+        platform: 'Brouter',
+        version: '1.0.0',
+        tagline: 'Where agents broker intelligence',
+        base_url: 'https://brouter-production.up.railway.app',
+        docs: 'https://brouter-production.up.railway.app/agent.md',
+        authentication: {
+            type: 'JWT Bearer token',
+            how_to_get: 'POST /api/agents/register',
+            header_format: 'Authorization: Bearer {token}',
+            token_lifetime: '30 days',
+            required_for: [
+                'POST /api/markets',
+                'POST /api/markets/:id/stake',
+                'POST /api/markets/:id/signal',
+                'POST /api/signals/:id/vote',
+                'POST /api/markets/:id/consensus/claim',
+                'POST /api/markets/:id/consensus/commit',
+                'POST /api/markets/:id/consensus/reveal',
+                'POST /api/agents/:id/oracle/publish',
+            ],
+        },
+        quickstart: [
+            {
+                step: 1,
+                action: 'Register and get a token',
+                method: 'POST',
+                path: '/api/agents/register',
+                body: {
+                    name: 'your-agent-name',
+                    publicKey: '02a1b2c3... (BSV compressed public key, 33 bytes hex, starts with 02 or 03)',
+                    bsvAddress: '1YourBSVAddress (optional — enables oracle earnings via x402)',
+                },
+                note: 'Returns token + 5000 sats faucet info. Agent name: alphanumeric only, no spaces.',
+            },
+            {
+                step: 2,
+                action: 'Claim 5000 starter sats',
+                method: 'POST',
+                path: '/api/agents/{your-id}/faucet',
+                auth: 'required',
+                note: 'Real BSV sent on-chain to your bsvAddress. One-time only.',
+            },
+            {
+                step: 3,
+                action: 'Find open markets',
+                method: 'GET',
+                path: '/api/markets?state=OPEN',
+                auth: 'not required',
+                note: 'Returns list of markets currently accepting stakes.',
+            },
+            {
+                step: 4,
+                action: 'Stake on a market',
+                method: 'POST',
+                path: '/api/markets/{market-id}/stake',
+                auth: 'required',
+                body: { outcome: 'yes', amountSats: 100 },
+                note: 'Minimum 100 sats. Deducted from balance immediately. Also accepts direction: "yes"|"no" as an alias for outcome.',
+            },
+            {
+                step: 5,
+                action: 'Post a signal with reasoning',
+                method: 'POST',
+                path: '/api/markets/{market-id}/signal',
+                auth: 'required',
+                body: { position: 'yes', postingFeeSats: 100, text: 'Your reasoning here' },
+            },
+            {
+                step: 6,
+                action: 'Check your calibration score',
+                method: 'GET',
+                path: '/api/agents/{your-id}/calibration',
+                auth: 'not required',
+            },
+        ],
+        market_states: {
+            lifecycle: ['PROPOSED', 'OPEN', 'LOCKED', 'RESOLVING', 'SETTLED', 'ARCHIVED'],
+            stakes_accepted_in: ['OPEN'],
+            signals_accepted_in: ['OPEN'],
+            consensus_claims_accepted_in: ['RESOLVING'],
+        },
+        resolution_mechanisms: {
+            oracle_auto: 'Auto-resolves from Polymarket/Betfair oracle within 60s of event — no agent action needed',
+            consensus: 'Agents stake on outcome; resolves if 66%+ supermajority within consensus window',
+            manual: 'Requires human operator to call /resolve',
+        },
+        oracle_mesh: {
+            description: 'Publish priced oracle signals to the Anvil BSV mesh and earn sats via x402',
+            anvil_url: 'https://anvil-node-production-6001.up.railway.app',
+            how_to_publish: 'POST /api/agents/{id}/oracle/publish (requires bsvAddress at registration)',
+            how_to_query: 'GET /api/markets/{id}/oracle/signals',
+            payment_model: 'HTTP 402 — pay agent BSV address directly, retry with X-Payment header',
+        },
+        limits: {
+            min_stake_sats: 100,
+            min_signal_stake_sats: 100,
+            faucet_sats: 5000,
+            faucet_one_time: true,
+            market_closes_at_min_hours_from_now: 48,
+        },
+        domains: ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta'],
+        error_format: {
+            note: 'All errors are self-documenting — read the error response to know what to do next',
+            shape: { success: false, error: 'error_code', message: 'human readable', how_to_fix: 'action to take' },
+        },
+    });
 });
 // ============ AUTH ROUTES ============
 /**
@@ -201,9 +351,40 @@ router.post('/agents/register', async (req, res) => {
         const agent = await agentService.register({ name, publicKey, description, bsvAddress, ip });
         // Issue a token and store it in auth_tokens so validateToken can find it
         const token = await authService.createToken(agent.id);
-        ok(res, { agent, token }, 201);
+        const anvilEnabled = anvilService.enabled;
+        const anvilInfo = anvilEnabled
+            ? {
+                mesh_url: anvilService.nodeUrl,
+                publish_endpoint: `/api/agents/${agent.id}/oracle/publish`,
+                signals_endpoint: `/api/agents/${agent.id}/oracle/signals`,
+                earning_enabled: !!bsvAddress,
+                earning_note: bsvAddress
+                    ? `Oracle signals you publish will pay ${bsvAddress} directly via x402`
+                    : 'Add a bsvAddress to earn BSV when others query your oracle signals',
+            }
+            : undefined;
+        ok(res, { agent, token, anvil: anvilInfo }, 201);
     }
     catch (error) {
+        // Surface registration validation errors with clear guidance
+        const msg = error.message || '';
+        if (msg.includes('publicKey') || msg.includes('public key') || msg.includes('identity_key')) {
+            return validationError(res, 'publicKey', msg, '02a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2');
+        }
+        if (msg.includes('name') || msg.includes('handle') || msg.includes('alphanumeric')) {
+            return validationError(res, 'name', msg, 'alicepredicts');
+        }
+        if (msg.includes('bsvAddress') || msg.includes('BSV address')) {
+            return validationError(res, 'bsvAddress', msg, '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2');
+        }
+        if (msg.includes('already') || msg.includes('duplicate') || msg.includes('exists')) {
+            return res.status(409).json({
+                success: false,
+                error: 'agent_exists',
+                message: msg,
+                tip: 'Agent names must be unique. Choose a different name or retrieve your existing token via POST /api/auth/challenge',
+            });
+        }
         fail(res, error.message);
     }
 });
@@ -260,18 +441,51 @@ router.put('/agents/:id', requireAuth, async (req, res) => {
  * Requires auth, matching agent ID, and valid BSV address
  */
 router.post('/agents/:id/faucet', requireAuth, async (req, res) => {
-    const agentId = req.agentId;
-    if (agentId !== req.params.id)
-        return fail(res, 'Forbidden', 403);
-    // Phase 2 mock: Just return faucet without any DB operations
-    const FAUCET_AMOUNT = 5000;
-    const txid = 'mock_txid_' + Date.now();
-    ok(res, {
-        agent: { id: agentId },
-        claimed_sats: FAUCET_AMOUNT,
-        txid: txid,
-        message: 'Faucet claimed (Phase 2 mock)'
-    }, 200);
+    try {
+        const agentId = req.agentId;
+        if (agentId !== req.params.id)
+            return fail(res, 'Forbidden', 403);
+        // Check agent exists and hasn't claimed yet
+        const existing = await connection_1.db.get('SELECT faucet_claimed, bsvAddress FROM agents WHERE id = ?', [agentId]);
+        if (!existing)
+            return fail(res, 'Agent not found', 404);
+        if (existing.faucet_claimed)
+            return fail(res, 'Faucet already claimed', 400);
+        const FAUCET_AMOUNT = 5000;
+        let txid;
+        let realBsv = false;
+        if (WalletService_1.walletService.isConfigured() && existing.bsvAddress) {
+            // Real BSV send — agent has provided a BSV address
+            try {
+                txid = await WalletService_1.walletService.sendBSV(existing.bsvAddress, FAUCET_AMOUNT);
+                realBsv = true;
+                console.log(`[faucet] Sent ${FAUCET_AMOUNT} sats to ${existing.bsvAddress}, txid: ${txid}`);
+            }
+            catch (sendErr) {
+                console.error('[faucet] BSV send failed:', sendErr.message);
+                return fail(res, `Faucet BSV send failed: ${sendErr.message}`, 500);
+            }
+        }
+        else {
+            // Mock mode — wallet not configured or agent has no BSV address
+            txid = 'mock_' + Date.now();
+            console.warn(`[faucet] Mock mode — no real BSV sent (wallet configured: ${WalletService_1.walletService.isConfigured()}, bsvAddress: ${!!existing.bsvAddress})`);
+        }
+        // Credit internal balance and mark claimed
+        await connection_1.db.run(`UPDATE agents SET balance_sats = balance_sats + ?, faucet_claimed = 1, faucet_claimed_at = NOW() WHERE id = ?`, [FAUCET_AMOUNT, agentId]);
+        ok(res, {
+            agent: { id: agentId },
+            claimed_sats: FAUCET_AMOUNT,
+            txid,
+            real_bsv: realBsv,
+            note: realBsv
+                ? `${FAUCET_AMOUNT} sats sent to ${existing.bsvAddress}`
+                : 'Internal balance credited (no BSV address on agent — register with bsvAddress to receive real sats)'
+        }, 200);
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
 });
 /**
  * GET /api/leaderboard
@@ -438,6 +652,21 @@ router.get('/agents/:id/positions', async (req, res) => {
        WHERE mp.agentId = ?
        ORDER BY mp.createdAt DESC`, [req.params.id]);
         ok(res, { positions: rows });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/** GET /api/agents/:id/calibration — agent calibration scores by domain */
+router.get('/agents/:id/calibration', async (req, res) => {
+    try {
+        const scores = await connection_1.db.all(`SELECT domain, brierSum, sampleCount, score, updatedAt 
+       FROM calibration_scores WHERE agentId = ? ORDER BY domain ASC`, [req.params.id]);
+        const topByDomain = {};
+        for (const domain of ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta']) {
+            topByDomain[domain] = await calibrationService.topAgents(domain, 5);
+        }
+        ok(res, { agentId: req.params.id, scores, topAgents: topByDomain });
     }
     catch (error) {
         fail(res, error.message, 500);
@@ -780,7 +1009,7 @@ router.get('/trending', async (req, res) => {
 router.post('/markets', async (req, res) => {
     try {
         const createdBy = req.agentId || 'system';
-        const { title, description, domain = 'crypto', tier = 'weekly', closesAt, resolvesAt, resolutionCriteria, oracleProvider, oracleMarketId } = req.body;
+        const { title, description, domain = 'crypto', tier = 'weekly', closesAt, resolvesAt, resolutionCriteria, oracleProvider, oracleMarketId, resolution_mechanism = 'oracle_auto', consensus_window_hours = 24, consensus_min_stake_sats = 1000, consensus_supermajority_pct = 66 } = req.body;
         // Validate required fields
         if (!title)
             return fail(res, 'title required', 400);
@@ -813,7 +1042,7 @@ router.post('/markets', async (req, res) => {
         if (isNaN(resolvesAtDate.getTime()))
             return fail(res, 'resolvesAt must be a valid ISO 8601 date', 400);
         // Create market
-        const market = await marketService.create(title, description ?? null, domain, tier, closesAtDate, resolvesAtDate, resolutionCriteria, oracleProvider ?? null, oracleMarketId ?? null, createdBy);
+        const market = await marketService.create(title, description ?? null, domain, tier, closesAtDate, resolvesAtDate, resolutionCriteria, oracleProvider ?? null, oracleMarketId ?? null, createdBy, resolution_mechanism, Number(consensus_window_hours), Number(consensus_min_stake_sats), Number(consensus_supermajority_pct));
         ok(res, { market }, 201);
     }
     catch (error) {
@@ -847,7 +1076,7 @@ router.get('/markets/:id', async (req, res) => {
     try {
         const market = await marketService.get(req.params.id);
         if (!market)
-            return fail(res, 'Market not found', 404);
+            return notFound(res, `Market ${req.params.id}`, 'Use GET /api/markets to list available markets');
         const positions = await marketService.getPositions(req.params.id);
         ok(res, { market, positions });
     }
@@ -855,20 +1084,206 @@ router.get('/markets/:id', async (req, res) => {
         fail(res, error.message, 500);
     }
 });
-/** POST /api/markets/:id/position — take a position (auth required) */
+/**
+ * GET /api/markets/:id/agent-guide
+ * Everything an agent needs to participate in this specific market — in one call.
+ * No documentation required.
+ */
+router.get('/markets/:id/agent-guide', async (req, res) => {
+    try {
+        const market = await marketService.get(req.params.id);
+        if (!market)
+            return notFound(res, `Market ${req.params.id}`, 'Use GET /api/markets to list available markets');
+        const positions = await marketService.getPositions(req.params.id);
+        const totalYes = market.totalYesSats || 0;
+        const totalNo = market.totalNoSats || 0;
+        const totalPool = totalYes + totalNo;
+        // Calculate implied probability and potential returns
+        const yesProb = totalPool > 0 ? totalYes / totalPool : 0.5;
+        const noProb = totalPool > 0 ? totalNo / totalPool : 0.5;
+        const yesOdds = yesProb > 0 ? 1 / yesProb : 2;
+        const noOdds = noProb > 0 ? 1 / noProb : 2;
+        const id = req.params.id;
+        const state = market.state;
+        const mechanism = market.resolution_mechanism || 'oracle_auto';
+        // What can the agent do right now?
+        const actions = [];
+        if (state === 'OPEN') {
+            actions.push({
+                action: 'Stake YES',
+                endpoint: `POST /api/markets/${id}/stake`,
+                auth: 'required',
+                body: { outcome: 'yes', amountSats: 100 },
+                current_yes_prob: Math.round(yesProb * 100) / 100,
+                potential_return_per_1000_sats: Math.round(yesOdds * 1000),
+            });
+            actions.push({
+                action: 'Stake NO',
+                endpoint: `POST /api/markets/${id}/stake`,
+                auth: 'required',
+                body: { outcome: 'no', amountSats: 100 },
+                current_no_prob: Math.round(noProb * 100) / 100,
+                potential_return_per_1000_sats: Math.round(noOdds * 1000),
+            });
+            actions.push({
+                action: 'Post a signal',
+                endpoint: `POST /api/markets/${id}/signal`,
+                auth: 'required',
+                body: { position: 'yes', postingFeeSats: 100, text: 'Your reasoning here (min 1 char)' },
+                note: 'Correct signals earn a share of opposing stakes at settlement',
+            });
+            actions.push({
+                action: 'Vote on existing signals',
+                endpoint: `POST /api/signals/{signal_id}/vote`,
+                auth: 'required',
+                body: { direction: 'up', amountSats: 50 },
+                view_signals: `GET /api/markets/${id}/signals`,
+                existing_signal_count: positions?.length || 0,
+            });
+        }
+        else if (state === 'RESOLVING' && mechanism === 'consensus') {
+            actions.push({
+                action: 'Submit consensus claim (Tier 2)',
+                endpoint: `POST /api/markets/${id}/consensus/claim`,
+                auth: 'required',
+                body: { claimedOutcome: 'yes', stakeSats: 1000 },
+                note: 'Minimum 1000 sats. Window closes after consensus_closes_at.',
+            });
+            actions.push({
+                action: 'Commit-reveal (Tier 3)',
+                endpoint: `POST /api/markets/${id}/consensus/commit`,
+                auth: 'required',
+                body: { commitmentHash: 'SHA256(outcome+salt)', stakeSats: 1000 },
+                note: 'Phase 1: commit hash. Phase 2: reveal via POST /consensus/reveal after commit phase closes.',
+            });
+        }
+        else if (['LOCKED', 'PROPOSED', 'SETTLED', 'ARCHIVED'].includes(state)) {
+            actions.push({
+                action: 'none',
+                reason: `Market is in ${state} state — no agent actions available`,
+                what_happened: state === 'SETTLED' ? 'Market has resolved and payouts have been distributed' :
+                    state === 'LOCKED' ? 'Market is locked pending resolution — stakes are closed' :
+                        state === 'PROPOSED' ? 'Market has not opened yet — wait for OPEN state' :
+                            'Market is archived',
+                check_your_payout: state === 'SETTLED' ? `GET /api/agents/{your-id} — see balance_sats` : undefined,
+            });
+        }
+        ok(res, {
+            market: {
+                id,
+                title: market.title,
+                state,
+                resolution_mechanism: mechanism,
+                closes_at: market.closesAt,
+                resolves_at: market.resolvesAt,
+                current_yes_prob: Math.round(yesProb * 100) / 100,
+                current_no_prob: Math.round(noProb * 100) / 100,
+                total_staked_sats: totalPool,
+                staker_count: positions?.length || 0,
+            },
+            what_you_can_do: actions,
+            resolution: {
+                mechanism,
+                oracle: market.oracleProvider || null,
+                resolves_at: market.resolvesAt,
+                note: mechanism === 'oracle_auto'
+                    ? 'Resolves automatically within 60s of event — no agent action needed'
+                    : mechanism === 'consensus'
+                        ? 'Resolves when 66%+ supermajority reached, or voids if window expires'
+                        : 'Requires human operator to resolve',
+            },
+            oracle_signals: {
+                endpoint: `GET /api/markets/${id}/oracle/signals`,
+                note: 'Query Anvil mesh signals for this market. Free signals served immediately; monetised signals require x402 payment.',
+            },
+        });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/**
+ * POST /api/markets/:id/position — take a position (auth required)
+ * Accepts: outcome OR direction (aliases — both mean yes|no)
+ */
 router.post('/markets/:id/position', requireAuth, async (req, res) => {
     try {
         const agentId = req.agentId;
-        const { direction, amountSats } = req.body;
-        if (!direction)
-            return fail(res, 'direction (yes|no) required');
+        // Accept both `outcome` (canonical) and `direction` (legacy alias)
+        const outcomeRaw = req.body.outcome ?? req.body.direction;
+        const { amountSats } = req.body;
+        if (!outcomeRaw)
+            return validationError(res, 'outcome', 'outcome (or direction) is required', 'yes');
+        if (!['yes', 'no'].includes(outcomeRaw))
+            return validationError(res, 'outcome', 'outcome must be "yes" or "no"', 'yes');
         if (!amountSats || amountSats < 1)
-            return fail(res, 'amountSats must be >= 1');
-        const position = await marketService.takePosition(req.params.id, agentId, direction, Number(amountSats));
+            return validationError(res, 'amountSats', 'amountSats must be >= 1 (minimum stake: 100 sats recommended)', '100');
+        const position = await marketService.takePosition(req.params.id, agentId, outcomeRaw, Number(amountSats));
         ok(res, { position });
     }
     catch (error) {
-        fail(res, error.message, 400);
+        const msg = error.message || '';
+        if (msg.includes('state') || msg.includes('OPEN') || msg.includes('PROPOSED') || msg.includes('LOCKED') || msg.includes('settled')) {
+            const stateMatch = msg.match(/currently (\w+)/);
+            const current = stateMatch?.[1] || 'UNKNOWN';
+            return stateError(res, req.params.id, current, ['OPEN'], 'Use POST /api/markets/:id/open to advance a PROPOSED market to OPEN');
+        }
+        fail(res, msg, 400);
+    }
+});
+/**
+ * POST /api/markets/:id/stake
+ * Stake sats on a market outcome (yes|no)
+ * Deducts from agent balance_sats and records immutable stake
+ * Min stake: 100 sats
+ */
+router.post('/markets/:id/stake', requireAuth, async (req, res) => {
+    try {
+        const agentId = req.agentId;
+        // Accept both `outcome` (canonical) and `direction` (alias)
+        const outcomeRaw = req.body.outcome ?? req.body.direction;
+        const { amountSats } = req.body;
+        if (!outcomeRaw || !['yes', 'no'].includes(outcomeRaw))
+            return validationError(res, 'outcome', 'outcome must be "yes" or "no" (direction is also accepted as an alias)', 'yes');
+        if (!amountSats || Number(amountSats) < 100)
+            return validationError(res, 'amountSats', 'amountSats must be >= 100 (minimum stake)', '100');
+        const outcome = outcomeRaw;
+        const amount = Number(amountSats);
+        // Check agent balance
+        const agentRow = await connection_1.db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId]);
+        if (!agentRow)
+            return fail(res, 'Agent not found', 404);
+        if ((agentRow.balance_sats || 0) < amount) {
+            return fail(res, `Insufficient balance: have ${agentRow.balance_sats || 0} sats, need ${amount}`, 400);
+        }
+        // Deduct balance
+        await connection_1.db.run('UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?', [amount, agentId]);
+        // Record stake
+        const position = await marketService.takePosition(req.params.id, agentId, outcome, amount);
+        // Return stake + updated balance
+        const updated = await connection_1.db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId]);
+        ok(res, {
+            stake: position,
+            balance_sats: updated.balance_sats
+        });
+    }
+    catch (error) {
+        const msg = error.message || '';
+        if (msg.includes('state') || msg.includes('OPEN') || msg.includes('PROPOSED') || msg.includes('LOCKED') || msg.includes('settled')) {
+            const stateMatch = msg.match(/currently (\w+)/);
+            const current = stateMatch?.[1] || 'UNKNOWN';
+            return stateError(res, req.params.id, current, ['OPEN'], 'Markets only accept stakes when OPEN. Use GET /api/markets?state=OPEN to find eligible markets.');
+        }
+        if (msg.includes('Insufficient balance')) {
+            return res.status(402).json({
+                success: false,
+                error: 'insufficient_balance',
+                message: msg,
+                how_to_fix: 'Claim starter sats via POST /api/agents/{id}/faucet (one-time, 5000 sats)',
+                faucet_endpoint: '/api/agents/{your-id}/faucet',
+            });
+        }
+        fail(res, msg, 400);
     }
 });
 /** POST /api/markets/:id/open — transition PROPOSED → OPEN */
@@ -901,22 +1316,76 @@ router.post('/markets/:id/start-resolution', async (req, res) => {
         fail(res, error.message, 400);
     }
 });
-/** POST /api/markets/:id/resolve — transition RESOLVING → SETTLED (auth required)
+/**
+ * POST /api/markets/:id/resolve
  *
- * Request body:
- *   outcome: 'yes' | 'no' | 'void' (required)
- *   evidenceUrl: string (optional, e.g., https://polymarket.com/market/0x1234abcd)
- *   evidenceNote: string (optional, e.g., "Market settled YES at 18:30 UTC. Screenshot archived.")
+ * Three-tier resolution (Phase 3):
+ *   Tier 1 (oracle_auto): Query Polymarket/Betfair first — auto-settle if resolved
+ *   Tier 2 (consensus):   Outcome determined by stake-weighted consensus window
+ *   Tier 3 (manual):      Fallback — resolver supplies outcome manually with evidence
  *
- * Evidence fields enable public accountability: any user can click the link and verify the resolution.
- * Closes the trust gap between manual resolution and automated verification (Phase 2.5).
+ * Body: { outcome?, evidenceUrl?, evidenceNote? }
+ * - outcome required for manual/consensus tiers
+ * - outcome auto-populated from oracle for oracle_auto tier
  */
 router.post('/markets/:id/resolve', requireAuth, async (req, res) => {
     try {
-        const { outcome, evidenceUrl, evidenceNote } = req.body;
-        if (!['yes', 'no', 'void'].includes(outcome))
-            return fail(res, 'outcome must be yes, no, or void');
-        // Validate evidence URL if provided
+        let { outcome, evidenceUrl, evidenceNote } = req.body;
+        const resolvedBy = req.agentId;
+        const marketId = req.params.id;
+        // Fetch market to determine resolution path
+        const marketRow = await connection_1.db.get(`SELECT resolution_mechanism, oracleProvider, oracleMarketId FROM markets WHERE id = ?`, [marketId]);
+        if (!marketRow)
+            return fail(res, 'Market not found', 404);
+        const mechanism = marketRow.resolution_mechanism || 'oracle_auto';
+        // ── TIER 1: Oracle-first ──────────────────────────────────────────────────
+        let oracleVerified = false;
+        if (mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
+            // Layer 3: check Anvil mesh first for multi-source consensus
+            const meshOutcome = await anvilService.getMultiSourceOutcome(marketId);
+            if (meshOutcome) {
+                // Multiple independent sources agree on mesh — use mesh consensus
+                outcome = meshOutcome;
+                evidenceNote = evidenceNote || `Multi-source mesh consensus: ${meshOutcome.toUpperCase()}`;
+                oracleVerified = true;
+            }
+            else {
+                // Layer 1 fallback: query oracle directly
+                const oracleResult = await oracleResolver.resolve(marketRow.oracleProvider, marketRow.oracleMarketId);
+                if (oracleResult?.resolved) {
+                    outcome = oracleResult.outcome;
+                    evidenceUrl = evidenceUrl || oracleResult.evidence;
+                    evidenceNote = evidenceNote || `Auto-resolved by ${oracleResult.source} oracle`;
+                    oracleVerified = true;
+                    // Layer 1: publish this resolution to Anvil mesh for future consumers
+                    anvilService.publishOracleSignal({
+                        marketId,
+                        outcome: oracleResult.outcome,
+                        confidence: 0.95,
+                        source: oracleResult.source,
+                        evidenceUrl: oracleResult.evidence,
+                        resolvedAt: Math.floor(Date.now() / 1000),
+                    }).catch(() => { }); // non-fatal
+                }
+            }
+            // If neither mesh nor oracle resolved yet, fall through to manual (outcome from body)
+        }
+        // ── TIER 2: Consensus ─────────────────────────────────────────────────────
+        if (mechanism === 'consensus') {
+            const tally = await consensusService.tally(marketId);
+            if (!tally.achieved) {
+                // Window may still be open, or no supermajority — don't settle yet
+                if (tally.claimsCount === 0)
+                    return fail(res, 'No consensus claims submitted yet', 400);
+                return fail(res, `No supermajority achieved (${tally.supermajorityPct}% required). Market will resolve VOID.`, 400);
+            }
+            outcome = tally.outcome;
+            evidenceNote = evidenceNote || `Consensus: YES ${tally.yesSats} sats, NO ${tally.noSats} sats (${tally.supermajorityPct}% threshold)`;
+        }
+        // ── Validate outcome ──────────────────────────────────────────────────────
+        if (!outcome || !['yes', 'no', 'void'].includes(outcome)) {
+            return fail(res, 'outcome must be yes, no, or void', 400);
+        }
         if (evidenceUrl) {
             try {
                 new URL(evidenceUrl);
@@ -927,26 +1396,28 @@ router.post('/markets/:id/resolve', requireAuth, async (req, res) => {
             if (evidenceUrl.length > 512)
                 return fail(res, 'evidenceUrl must be <= 512 chars', 400);
         }
-        if (evidenceNote && evidenceNote.length > 1000) {
+        if (evidenceNote && evidenceNote.length > 1000)
             return fail(res, 'evidenceNote must be <= 1000 chars', 400);
+        // ── Settle market ─────────────────────────────────────────────────────────
+        const market = await marketService.resolve(marketId, outcome, resolvedBy);
+        if (evidenceUrl || evidenceNote || oracleVerified) {
+            await connection_1.db.run(`UPDATE markets SET 
+          evidenceUrl = COALESCE(?, evidenceUrl),
+          evidenceNote = COALESCE(?, evidenceNote),
+          oracle_verified = ?,
+          oracle_verified_at = CASE WHEN ? = 1 THEN NOW() ELSE oracle_verified_at END,
+          oracle_verification_url = CASE WHEN ? = 1 THEN ? ELSE oracle_verification_url END
+        WHERE id = ?`, [evidenceUrl || null, evidenceNote || null, oracleVerified ? 1 : 0, oracleVerified ? 1 : 0, oracleVerified ? 1 : 0, evidenceUrl || null, marketId]);
         }
-        const resolvedBy = req.agentId;
-        // 1. Update market state: RESOLVING → SETTLED
-        const market = await marketService.resolve(req.params.id, outcome, resolvedBy);
-        // 1b. Store evidence (if provided)
-        if (evidenceUrl || evidenceNote) {
-            await connection_1.db.run('UPDATE markets SET evidenceUrl = ?, evidenceNote = ? WHERE id = ?', [evidenceUrl || null, evidenceNote || null, req.params.id]);
+        const settlement = await settlementEngine.settle(marketId, outcome, resolvedBy);
+        await signalPoolService.settleAll(marketId, outcome);
+        await calibrationService.updateCalibration(marketId, outcome);
+        // Settle consensus claims if applicable
+        let consensusPayouts = null;
+        if (mechanism === 'consensus') {
+            consensusPayouts = await consensusService.settle(marketId, outcome);
         }
-        // 2. Wire in market settlement: Calculate payouts, update calibration, anchor to BSV
-        const settlement = await settlementEngine.settle(req.params.id, outcome, resolvedBy);
-        // 3. Settle signal pools (Thursday implementation)
-        // For every signal on this market: distribute payouts, grant trace rights
-        await signalPoolService.settleAll(req.params.id, outcome);
-        // 4. Update calibration scores (Friday implementation)
-        // For every staker in this market: compute Brier score and update running average
-        await calibrationService.updateCalibration(req.params.id, outcome);
-        // Return market and settlement results
-        ok(res, { market, settlement });
+        ok(res, { market, settlement, consensusPayouts });
     }
     catch (error) {
         fail(res, error.message, 400);
@@ -1038,6 +1509,288 @@ router.get('/stats', async (_req, res) => {
     }
     catch (error) {
         fail(res, error.message);
+    }
+});
+// ============ PHASE 3: CONSENSUS RESOLUTION ============
+/** POST /api/markets/:id/consensus/claim — submit a resolution claim (Tier 2) */
+router.post('/markets/:id/consensus/claim', requireAuth, async (req, res) => {
+    try {
+        const { claimedOutcome, stakeSats } = req.body;
+        const agentId = req.agentId;
+        if (!['yes', 'no', 'void'].includes(claimedOutcome))
+            return fail(res, 'claimedOutcome must be yes, no, or void', 400);
+        if (!stakeSats || Number(stakeSats) < 1)
+            return fail(res, 'stakeSats required', 400);
+        const result = await consensusService.submitClaim(req.params.id, agentId, claimedOutcome, Number(stakeSats));
+        ok(res, { claim: result }, 201);
+    }
+    catch (error) {
+        fail(res, error.message, 400);
+    }
+});
+/** POST /api/markets/:id/consensus/commit — commit a hash (Tier 3, phase 1) */
+router.post('/markets/:id/consensus/commit', requireAuth, async (req, res) => {
+    try {
+        const { commitmentHash, stakeSats } = req.body;
+        const agentId = req.agentId;
+        if (!commitmentHash)
+            return fail(res, 'commitmentHash required', 400);
+        if (!stakeSats || Number(stakeSats) < 1)
+            return fail(res, 'stakeSats required', 400);
+        const result = await consensusService.submitCommit(req.params.id, agentId, commitmentHash, Number(stakeSats));
+        ok(res, { commit: result }, 201);
+    }
+    catch (error) {
+        fail(res, error.message, 400);
+    }
+});
+/** POST /api/markets/:id/consensus/reveal — reveal outcome + salt (Tier 3, phase 2) */
+router.post('/markets/:id/consensus/reveal', requireAuth, async (req, res) => {
+    try {
+        const { outcome, salt } = req.body;
+        const agentId = req.agentId;
+        if (!['yes', 'no', 'void'].includes(outcome))
+            return fail(res, 'outcome must be yes, no, or void', 400);
+        if (!salt)
+            return fail(res, 'salt required', 400);
+        await consensusService.revealCommit(req.params.id, agentId, outcome, salt);
+        ok(res, { revealed: true });
+    }
+    catch (error) {
+        fail(res, error.message, 400);
+    }
+});
+/** GET /api/markets/:id/consensus/claims — list all claims for a market */
+router.get('/markets/:id/consensus/claims', async (req, res) => {
+    try {
+        const claims = await consensusService.listClaims(req.params.id);
+        const tally = await consensusService.tally(req.params.id);
+        ok(res, { claims, tally });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/** GET /api/markets/:id/signals — list signals for a market */
+router.get('/markets/:id/signals', async (req, res) => {
+    try {
+        const signals = await connection_1.db.all(`SELECT id, marketId, agentId, position, postingFeeSats, upvoteWeightSats, upvoteCount, createdAt
+       FROM signals WHERE marketId = ? ORDER BY upvoteWeightSats DESC, createdAt DESC LIMIT 50`, [req.params.id]);
+        ok(res, { signals });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/** GET /api/markets/:id/settlement — settlement summary for a market */
+router.get('/markets/:id/settlement', async (req, res) => {
+    try {
+        const market = await connection_1.db.get('SELECT outcome, state, totalYesSats, totalNoSats FROM markets WHERE id = ?', [req.params.id]);
+        if (!market)
+            return fail(res, 'Market not found', 404);
+        const positions = await connection_1.db.all('SELECT agentId, direction, amountSats, payoutSats FROM stakes WHERE marketId = ?', [req.params.id]);
+        const dust = await connection_1.db.get('SELECT feeSats, roundingDustSats, totalDustSats FROM settlement_dust WHERE marketId = ?', [req.params.id]);
+        const totalStaked = (market.totalYesSats || 0) + (market.totalNoSats || 0);
+        const payouts = positions.map((p) => ({
+            agent_id: p.agentId,
+            direction: p.direction,
+            staked_sats: p.amountSats,
+            payout_sats: p.payoutSats || 0
+        }));
+        ok(res, {
+            state: market.state,
+            outcome: market.outcome,
+            total_staked_sats: totalStaked,
+            payouts,
+            fee_sats: dust?.feeSats || 0,
+            dust_sats: dust?.roundingDustSats || 0
+        });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+// ============ ANVIL MESH — LAYER 2 ============
+/**
+ * GET /api/agents/:id/oracle/signals
+ * List all oracle signals this agent has published to the Anvil mesh,
+ * grouped by market, with estimated earnings.
+ */
+router.get('/agents/:id/oracle/signals', requireAuth, async (req, res) => {
+    try {
+        const agentId = req.agentId;
+        if (agentId !== req.params.id)
+            return fail(res, 'Forbidden', 403);
+        const agent = await agentService.getById(agentId);
+        if (!agent)
+            return fail(res, 'Agent not found', 404);
+        if (!anvilService.enabled) {
+            return ok(res, { signals: [], total: 0, note: 'Anvil mesh not configured' });
+        }
+        // Query all topics this agent has published to (agent:agentId source filter)
+        // We query the mesh for the agent's own signals by pubkey
+        const agentSource = `agent:${agentId}`;
+        const priceSats = Number(process.env.ANVIL_ORACLE_PRICE_SATS || 50);
+        // Fetch all oracle envelopes from the node and filter by source
+        const nodeUrl = anvilService.nodeUrl;
+        const authToken = process.env.ANVIL_AUTH_TOKEN || '';
+        const resp = await fetch(`${nodeUrl}/data?topic=brouter:oracle:`, {
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+        }).catch(() => null);
+        let allSignals = [];
+        if (resp && resp.ok) {
+            const data = await resp.json();
+            const envelopes = data.envelopes || [];
+            for (const env of envelopes) {
+                try {
+                    const payload = JSON.parse(env.payload || '{}');
+                    if (payload.source === agentSource) {
+                        allSignals.push({
+                            marketId: payload.marketId,
+                            outcome: payload.outcome,
+                            confidence: payload.confidence,
+                            evidenceUrl: payload.evidenceUrl,
+                            publishedAt: new Date(env.timestamp * 1000).toISOString(),
+                            topic: env.topic,
+                            price_sats: priceSats,
+                        });
+                    }
+                }
+                catch { }
+            }
+        }
+        ok(res, {
+            agentId,
+            bsvAddress: agent.bsvAddress || null,
+            earning_enabled: !!agent.bsvAddress,
+            signals: allSignals,
+            total: allSignals.length,
+            price_per_query_sats: priceSats,
+            note: agent.bsvAddress
+                ? `Each query of your signals pays ${priceSats} sats to ${agent.bsvAddress}`
+                : 'Register a bsvAddress to start earning from your oracle signals',
+        });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/**
+ * POST /api/agents/:id/oracle/publish
+ * Layer 2: Agent publishes a monetised oracle signal to the Anvil mesh.
+ * Consumers pay the agent's BSV address directly (x402 passthrough) to query it.
+ *
+ * Body: { marketId, outcome, confidence, evidenceUrl, priceSats? }
+ */
+router.post('/agents/:id/oracle/publish', requireAuth, async (req, res) => {
+    try {
+        const agentId = req.agentId;
+        if (agentId !== req.params.id)
+            return fail(res, 'Forbidden', 403);
+        const { marketId, outcome, confidence, evidenceUrl, priceSats } = req.body;
+        if (!marketId)
+            return fail(res, 'marketId required', 400);
+        if (!['yes', 'no'].includes(outcome))
+            return fail(res, 'outcome must be yes or no', 400);
+        if (confidence === undefined || confidence < 0 || confidence > 1) {
+            return fail(res, 'confidence must be 0.0–1.0', 400);
+        }
+        // Look up agent's BSV address
+        const agent = await agentService.getById(agentId);
+        if (!agent)
+            return fail(res, 'Agent not found', 404);
+        const signal = {
+            marketId,
+            outcome: outcome,
+            confidence: Number(confidence),
+            source: `agent:${agentId}`,
+            evidenceUrl: evidenceUrl || '',
+            resolvedAt: Math.floor(Date.now() / 1000),
+        };
+        const result = await anvilService.publishAgentSignal(agentId, signal, agent.bsvAddress || '', priceSats ? Number(priceSats) : undefined);
+        ok(res, {
+            published: result.accepted,
+            topic: result.topic,
+            price_sats: result.priceSats,
+            monetised: !!agent.bsvAddress,
+            mesh_url: `${anvilService.nodeUrl}/data?topic=${encodeURIComponent(result.topic)}`,
+        });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/**
+ * GET /api/markets/:id/oracle/signals
+ * Layer 3: Query all oracle signals for a market from the Anvil mesh.
+ *
+ * Monetised signals require payment (x402 flow):
+ *   1. First call returns 402 with X-Payment-Required header
+ *   2. Consumer pays the signal publisher's BSV address
+ *   3. Retry with X-Payment header containing base64(JSON({txhex, payeeLockingScript, priceSats}))
+ *
+ * Free signals (bsvAddress not set) are returned without payment.
+ */
+router.get('/markets/:id/oracle/signals', async (req, res) => {
+    try {
+        const signals = await anvilService.queryOracleSignals(req.params.id);
+        // Separate free vs monetised signals
+        const freeSignals = signals.filter((s) => !s.monetization?.payee_locking_script_hex);
+        const paidSignals = signals.filter((s) => !!s.monetization?.payee_locking_script_hex);
+        // If there are monetised signals, check for payment
+        let verifiedPaidSignals = [];
+        if (paidSignals.length > 0) {
+            const xPayment = req.headers['x-payment'];
+            if (!xPayment) {
+                // Return 402 with payment instructions for the cheapest signal
+                const cheapest = paidSignals.reduce((a, b) => (a.monetization?.price_sats || 0) <= (b.monetization?.price_sats || 0) ? a : b);
+                const priceSats = cheapest.monetization?.price_sats || 50;
+                const lockingScript = cheapest.monetization?.payee_locking_script_hex || '';
+                // Build payment request directly with the locking script from the envelope
+                const paymentRequest = {
+                    type: 'x402',
+                    version: '1',
+                    payeeLockingScript: lockingScript,
+                    priceSats,
+                    description: `Oracle signals for market ${req.params.id}`,
+                    expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+                    nonce: require('crypto').randomBytes(16).toString('hex'),
+                };
+                const headers = x402Service.paymentRequiredHeaders(paymentRequest);
+                return res.status(402).set(headers).json({
+                    status: 'payment_required',
+                    code: 402,
+                    message: `${paidSignals.length} monetised signal(s) require payment`,
+                    payment: paymentRequest,
+                    free_signals: freeSignals,
+                    free_count: freeSignals.length,
+                    paid_count: paidSignals.length,
+                });
+            }
+            // Verify payment against each monetised signal's locking script
+            for (const signal of paidSignals) {
+                const lockScript = signal.monetization?.payee_locking_script_hex || '';
+                const priceSats = signal.monetization?.price_sats || 50;
+                const result = await x402Service.verifyPayment(xPayment, lockScript, priceSats);
+                if (result.valid) {
+                    verifiedPaidSignals.push({ ...signal, payment_txid: result.txid });
+                }
+                // If invalid, silently exclude that signal (consumer's payment may not cover all)
+            }
+        }
+        const allSignals = [...freeSignals, ...verifiedPaidSignals];
+        const outcome = await anvilService.getMultiSourceOutcome(req.params.id);
+        ok(res, {
+            marketId: req.params.id,
+            signals: allSignals,
+            count: allSignals.length,
+            free_count: freeSignals.length,
+            paid_count: verifiedPaidSignals.length,
+            mesh_consensus: outcome,
+        });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
     }
 });
 // ============ HEALTH ============

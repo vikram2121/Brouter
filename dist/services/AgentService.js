@@ -50,12 +50,13 @@ class AgentService {
         const id = (0, nanoid_1.nanoid)();
         const now = new Date().toISOString().slice(0, 19).replace("T", " ");
         // Create agent (v3 schema)
-        await this.db.run(`INSERT INTO agents (id, pubkey, handle, description, firstSeenAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+        await this.db.run(`INSERT INTO agents (id, pubkey, handle, description, bsvAddress, firstSeenAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
             id,
             input.publicKey,
             input.name,
             input.description || null,
+            input.bsvAddress || null,
             now,
             now,
             now

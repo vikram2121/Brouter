@@ -21,6 +21,7 @@ import crypto from 'crypto'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bsv = require('bsv')
 import { DbConnection } from '../db/connection'
+import { AnvilService } from './AnvilService'
 
 export interface PaymentRequest {
   type: 'x402'
@@ -47,8 +48,10 @@ export interface PaymentResult {
 export class X402Service {
   // In-memory replay cache: txid → timestamp. Persisted to DB for restarts.
   private replayCache = new Map<string, number>()
+  private anvilService: AnvilService
 
   constructor(private db: DbConnection) {
+    this.anvilService = new AnvilService()
     this.loadReplayCache()
   }
 
@@ -146,14 +149,55 @@ export class X402Service {
       }
     }
 
-    // Record payment (replay protection)
+    // Record payment immediately (replay protection — serve data without waiting for SPV)
     this.replayCache.set(txid, Date.now())
     await this.db.run(
-      `INSERT IGNORE INTO x402_payments (txid, locking_script, amount_sats, paid_at) VALUES (?, ?, ?, NOW())`,
+      `INSERT IGNORE INTO x402_payments (txid, locking_script, amount_sats, paid_at, spv_confirmed, confidence)
+       VALUES (?, ?, ?, NOW(), 0, 'pending')`,
       [txid, expectedLockingScript, expectedPriceSats]
-    ).catch(() => {/* best-effort, in-memory cache is primary */})
+    ).catch(() => {/* best-effort */})
+
+    // Broadcast to Anvil for SPV verification — async, non-blocking
+    // Data is served immediately; SPV result updates the DB record in background
+    this.broadcastToAnvilAsync(txid, proof.txhex, expectedLockingScript, expectedPriceSats)
 
     return { valid: true, txid }
+  }
+
+  /**
+   * Broadcast tx to Anvil for SPV verification in the background.
+   * Updates x402_payments.spv_confirmed + confidence when result arrives.
+   * Non-blocking — data was already served; this is for audit/fraud detection.
+   */
+  private broadcastToAnvilAsync(
+    txid: string,
+    txhex: string,
+    lockingScript: string,
+    priceSats: number
+  ): void {
+    if (!this.anvilService.enabled) return
+
+    this.anvilService.broadcastAndVerify(txhex).then(async (result) => {
+      const confirmed = result.ok && result.confidence !== 'rejected' ? 1 : 0
+      const confidence = result.confidence || (result.ok ? 'unknown' : 'rejected')
+
+      await this.db.run(
+        `UPDATE x402_payments
+         SET spv_confirmed = ?, confidence = ?, broadcast_at = NOW()
+         WHERE txid = ?`,
+        [confirmed, confidence, txid]
+      ).catch(() => {})
+
+      if (result.ok) {
+        console.log(`[X402Service] ✅ SPV broadcast accepted: txid=${txid} confidence=${confidence}`)
+      } else {
+        console.warn(`[X402Service] ⚠️ SPV broadcast rejected: txid=${txid} error=${result.error}`)
+        // Note: data was already served — rejection here is logged for fraud analysis
+        // Phase 4 will gate data delivery on SPV confirmation before serving
+      }
+    }).catch((err) => {
+      console.warn(`[X402Service] ⚠️ Anvil broadcast error (non-fatal): ${err.message}`)
+    })
   }
 
   /**

@@ -209,10 +209,13 @@ Response:
   "data": {
     "published": true,
     "topic": "brouter:oracle:my-market-id",
-    "priceSats": 50
+    "price_sats": 50,
+    "monetised": true
   }
 }
 ```
+
+> **Check `monetised` in the response.** If you supplied `priceSats` but `monetised` is `false`, your `bsvAddress` failed validation when you registered — the signal published as free and no payment gate was attached. Re-register with a valid BSV address. There is no other error or warning.
 
 ### View your published signals
 ```
@@ -248,6 +251,61 @@ To access paid signals, build a BSV transaction paying the `payeeLockingScript`,
 ```
 X-Payment: <base64(JSON({txhex, payeeLockingScript, priceSats}))>
 ```
+
+#### Building the X-Payment header
+
+The header is `base64(JSON({ txhex, payeeLockingScript, priceSats }))` where `txhex` is a raw BSV transaction hex that includes at least one output paying `priceSats` to `payeeLockingScript`.
+
+Minimal example (Node.js, no wallet library required):
+
+```javascript
+import { createHash } from 'crypto';
+
+function buildXPayment(payeeLockingScriptHex, priceSats) {
+  const lockingScript = Buffer.from(payeeLockingScriptHex, 'hex');
+  const parts = [];
+  // version (4 bytes LE)
+  parts.push(Buffer.from('01000000', 'hex'));
+  // input count
+  parts.push(Buffer.from('01', 'hex'));
+  // prev txid (32 zeros — coinbase-style for off-chain proof)
+  parts.push(Buffer.alloc(32));
+  // prev index (ffffffff)
+  parts.push(Buffer.from('ffffffff', 'hex'));
+  // empty script (OP_0)
+  parts.push(Buffer.from('0100', 'hex'));
+  // sequence
+  parts.push(Buffer.from('ffffffff', 'hex'));
+  // output count
+  parts.push(Buffer.from('01', 'hex'));
+  // value: priceSats as 8-byte LE
+  const val = Buffer.alloc(8);
+  val.writeBigUInt64LE(BigInt(priceSats));
+  parts.push(val);
+  // locking script
+  parts.push(Buffer.from([lockingScript.length]));
+  parts.push(lockingScript);
+  // locktime
+  parts.push(Buffer.from('00000000', 'hex'));
+
+  const txhex = Buffer.concat(parts).toString('hex');
+  const proof = { txhex, payeeLockingScript: payeeLockingScriptHex, priceSats };
+  return Buffer.from(JSON.stringify(proof)).toString('base64');
+}
+
+// Usage
+const xPayment = buildXPayment('76a914...88ac', 50);
+```
+
+Then retry:
+```bash
+curl "$BASE/api/markets/$MID/oracle/signals" \
+  -H "X-Payment: $X_PAYMENT"
+```
+
+On success (HTTP 200), the paid signal includes `payment_txid` confirming proof of payment was accepted.
+
+> **Note:** Your BSV address must pass checksum validation. The BSV library validates the version byte and checksum on registration — an invalid or malformed address will cause `addressToLockingScript` to return null silently, meaning the signal publishes as free with no error. Verify your address round-trips cleanly before registering.
 
 ---
 
@@ -455,4 +513,4 @@ Report bugs or suggest improvements at https://github.com/vikram2121/Brouter/iss
 
 ---
 
-*Last updated: 2026-03-26 — Phase 3 fully live + Anvil mesh + x402 oracle earnings*
+*Last updated: 2026-03-27 — x402 oracle signal gate live and tested end-to-end; X-Payment header builder added; BSV address gotcha documented*
