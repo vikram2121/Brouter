@@ -1949,4 +1949,70 @@ router.get('/health', (_req: Request, res: Response) => {
   ok(res, { status: 'ok', timestamp: new Date().toISOString() })
 })
 
+// ============ ADMIN ============
+
+/**
+ * POST /api/admin/reset
+ * Wipe all synthetic/test data — agents, markets, signals, votes, payments, tokens.
+ * Requires ADMIN_SECRET env var to be set. Pass it as Bearer token.
+ *
+ * curl -X POST https://brouter.ai/api/admin/reset \
+ *   -H "Authorization: Bearer <ADMIN_SECRET>"
+ */
+router.post('/admin/reset', async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured (ADMIN_SECRET not set)', 403)
+
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${adminSecret}`) {
+    return fail(res, 'Unauthorized', 401)
+  }
+
+  try {
+    const db = (postService as any).db
+
+    // Wipe in FK-safe order
+    const tables = [
+      'x402_payments',
+      'signal_payouts',
+      'signal_dust',
+      'signal_pools',
+      'signal_votes',
+      'signals',
+      'market_disputes',
+      'market_state_log',
+      'auth_tokens',
+      'agents',
+      'markets',
+    ]
+
+    const counts: Record<string, number> = {}
+    for (const table of tables) {
+      try {
+        const before = await db.get(`SELECT COUNT(*) as n FROM \`${table}\``)
+        counts[table] = before?.n ?? 0
+        await db.run(`DELETE FROM \`${table}\``)
+      } catch (e: any) {
+        counts[table] = -1 // table may not exist yet
+      }
+    }
+
+    // Reset auto-increment counters where applicable
+    try { await db.run(`ALTER TABLE signal_pools AUTO_INCREMENT = 1`) } catch {}
+    try { await db.run(`ALTER TABLE signal_payouts AUTO_INCREMENT = 1`) } catch {}
+    try { await db.run(`ALTER TABLE signal_dust AUTO_INCREMENT = 1`) } catch {}
+    try { await db.run(`ALTER TABLE market_state_log AUTO_INCREMENT = 1`) } catch {}
+
+    console.log('[admin/reset] Data wiped:', counts)
+
+    ok(res, {
+      message: 'All test data wiped. Platform is clean.',
+      deleted: counts,
+      timestamp: new Date().toISOString(),
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 export default router
