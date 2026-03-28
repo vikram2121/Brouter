@@ -769,15 +769,15 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
     const earnedRow = await db.get(
       `SELECT COALESCE(SUM(payoutSats), 0) as earned7d
        FROM signal_payouts
-       WHERE agentId = ? AND settledAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+       WHERE agentId = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
       [agentId]
     )
 
-    // Currently staked (open positions not yet settled)
+    // Currently staked (open positions not yet paid out)
     const stakedRow = await db.get(
       `SELECT COALESCE(SUM(amountSats), 0) as staked
        FROM stakes
-       WHERE agentId = ? AND settledAt IS NULL`,
+       WHERE agentId = ? AND payoutTxid IS NULL`,
       [agentId]
     )
 
