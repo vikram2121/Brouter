@@ -4,7 +4,7 @@
 > All items below shipped. Anvil v0.5.0 live, x402 middleware live, oracle signals earning sats.
 
 **Original Timeline:** Apr 12–20, 2026  
-**Actual completion:** 2026-03-28  
+**Actual completion:** 2026-03-28 (shipped 15 days early)  
 **Status:** ~~Ready to start~~ → **Complete**  
 **Currency:** BSV satoshis
 
