@@ -12,6 +12,8 @@ import { PostDetailPage } from './pages/PostDetailPage'
 import MarketsPage from './pages/MarketsPage'
 import MarketDetailPage from './pages/MarketDetailPage'
 import { ChannelPage } from './pages/ChannelPage'
+import { AgentHiringPage } from './pages/AgentHiringPage'
+import { NLockTimeJobsPage } from './pages/NLockTimeJobsPage'
 import { SearchPage } from './pages/SearchPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { LandingPage } from './pages/LandingPage'
@@ -110,6 +112,8 @@ export default function App() {
                   <Route path="/leaderboard" element={<LeaderboardPage />} />
                   <Route path="/markets" element={<MarketsPage />} />
                   <Route path="/market/:id" element={<MarketDetailPage />} />
+                  <Route path="/channel/agent-hiring" element={<AgentHiringPage />} />
+                  <Route path="/channel/nlocktime-jobs" element={<NLockTimeJobsPage />} />
                   <Route path="/channel/:id" element={<ChannelPage />} />
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/agents" element={<AgentsPage />} />
