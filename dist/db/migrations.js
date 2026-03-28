@@ -218,7 +218,60 @@ const MIGRATIONS = [
                 await db.run(`INSERT IGNORE INTO channels (id, name, description, emoji) VALUES (?, ?, ?, ?)`, [ch.id, ch.name, ch.description, ch.emoji]);
             }
         }
-    }
+    },
+    {
+        id: '013_callback_url',
+        description: 'Add callback_url to agents table',
+        up: async (db) => {
+            await db.run(`ALTER TABLE agents ADD COLUMN callback_url VARCHAR(500) NULL`);
+        }
+    },
+    {
+        id: '014_jobs_table',
+        description: 'Create jobs table for agent-hiring and nlocktime-jobs state machine',
+        up: async (db) => {
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id               VARCHAR(36)   PRIMARY KEY DEFAULT (UUID()),
+          post_id          VARCHAR(36)   NOT NULL,
+          channel          VARCHAR(100)  NOT NULL,
+          poster_agent_id  VARCHAR(36)   NOT NULL,
+          worker_agent_id  VARCHAR(36)   NULL,
+          task             TEXT          NOT NULL,
+          budget_sats      INT           NOT NULL DEFAULT 0,
+          deadline         DATETIME      NULL,
+          required_calibration DECIMAL(4,3) NULL,
+          callback_url     VARCHAR(500)  NULL,
+          txid             VARCHAR(64)   NULL,
+          lock_height      INT           NULL,
+          script_type      VARCHAR(20)   NULL DEFAULT 'cltv',
+          state            VARCHAR(20)   NOT NULL DEFAULT 'open',
+          escrow_held      BOOLEAN       NOT NULL DEFAULT 0,
+          payout_txid      VARCHAR(64)   NULL,
+          createdAt        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_jobs_post_id (post_id),
+          INDEX idx_jobs_poster  (poster_agent_id),
+          INDEX idx_jobs_worker  (worker_agent_id),
+          INDEX idx_jobs_channel (channel),
+          INDEX idx_jobs_state   (state)
+        )
+      `);
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS job_bids (
+          id               VARCHAR(36)   PRIMARY KEY DEFAULT (UUID()),
+          job_id           VARCHAR(36)   NOT NULL,
+          bidder_agent_id  VARCHAR(36)   NOT NULL,
+          bid_sats         INT           NOT NULL,
+          message          TEXT          NULL,
+          state            VARCHAR(20)   NOT NULL DEFAULT 'pending',
+          createdAt        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_bids_job (job_id),
+          INDEX idx_bids_bidder (bidder_agent_id)
+        )
+      `);
+        }
+    },
 ];
 async function runMigrations(db) {
     console.log('🔧 Running database migrations...');

@@ -16,6 +16,7 @@ import { MarketService } from './MarketService'
 import { SettlementEngine, type SettlementConfig } from './SettlementEngine'
 import { SignalPoolService } from './SignalPoolService'
 import { CalibrationService } from './CalibrationService'
+import { JobService } from './JobService'
 
 export class ResolutionCron {
   private db: Database
@@ -25,6 +26,7 @@ export class ResolutionCron {
   private settlementEngine: SettlementEngine
   private signalPoolService: SignalPoolService
   private calibrationService: CalibrationService
+  private jobService: JobService
   private running = false
 
   constructor(db: Database) {
@@ -32,6 +34,7 @@ export class ResolutionCron {
     this.oracleResolver = new OracleResolver()
     this.consensusService = new ConsensusService(db)
     this.marketService = new MarketService(db)
+    this.jobService = new JobService(db)
 
     const settlementConfig: SettlementConfig = {
       walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
@@ -235,8 +238,59 @@ export class ResolutionCron {
       if (toAdvance.length + toResolve.length > 0) {
         console.log(`[cron] Tick complete: ${toAdvance.length} advanced, ${toResolve.length} resolved`)
       }
+
+      // 4. Auto-expire jobs past their deadline (open/locked → expired, refund poster)
+      await this.expireStaleJobs(now)
+
     } finally {
       this.running = false
+    }
+  }
+
+  /**
+   * Expire jobs where deadline has passed and they're still open/locked.
+   * Also expire nlocktime-jobs where lockHeight has passed (best-effort via block estimate).
+   */
+  private async expireStaleJobs(nowIso: string): Promise<void> {
+    try {
+      // Jobs with explicit deadline
+      const deadlinePassed = await this.db.all(
+        `SELECT id FROM jobs
+         WHERE state IN ('open', 'locked')
+           AND deadline IS NOT NULL
+           AND deadline <= ?`,
+        [nowIso]
+      )
+
+      // nlocktime-jobs: estimate block height from time (BSV ~10 min/block, genesis ~Jan 3 2009)
+      // Simple heuristic: current estimated block = (now - genesis) / 600_000ms
+      const genesisMs = new Date('2009-01-03T18:15:05Z').getTime()
+      const estimatedBlock = Math.floor((Date.now() - genesisMs) / 600_000)
+
+      const blockPassed = await this.db.all(
+        `SELECT id FROM jobs
+         WHERE state IN ('open', 'locked')
+           AND lock_height IS NOT NULL
+           AND lock_height <= ?
+           AND deadline IS NULL`,
+        [estimatedBlock]
+      )
+
+      const toExpire = [...deadlinePassed, ...blockPassed]
+      let expired = 0
+      for (const row of toExpire) {
+        try {
+          await this.jobService.expire(row.id)
+          expired++
+        } catch (err: any) {
+          console.warn(`[cron] Failed to expire job ${row.id}:`, err.message)
+        }
+      }
+      if (expired > 0) {
+        console.log(`[cron] Expired ${expired} stale job(s)`)
+      }
+    } catch (err: any) {
+      console.error('[cron] Job expiry scan failed:', err.message)
     }
   }
 

@@ -324,6 +324,9 @@ export const jobs = {
       method: 'POST',
       body: JSON.stringify({ payoutTxid })
     }),
+
+  byAgent: (agentId: string) =>
+    request<{ jobs: Job[] }>(`/agents/${agentId}/jobs`),
 }
 
 // ─── Trending ────────────────────────────────────────────────────────────────

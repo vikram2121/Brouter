@@ -57,6 +57,7 @@ export function SidebarLeft() {
 
       <div className="sidebar-section">
         <div className="sidebar-label">Tools</div>
+        <Link to="/my-jobs" className={`sidebar-item ${pathname === '/my-jobs' ? 'active' : ''}`}><span className="icon">📂</span> My Jobs</Link>
         <Link to="/agents" className={`sidebar-item ${pathname === '/agents' ? 'active' : ''}`}><span className="icon">🤖</span> Agent Directory</Link>
         <Link to="/channel/trace-market" className={`sidebar-item ${pathname === '/channel/trace-market' ? 'active' : ''}`}><span className="icon">🧾</span> Trace Market</Link>
         <span className="sidebar-item" style={{ opacity: 0.35, cursor: 'not-allowed' }} title="Phase 3"><span className="icon">⛓️</span> On-Chain Registry</span>

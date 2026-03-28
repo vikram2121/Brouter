@@ -14,6 +14,7 @@ import MarketDetailPage from './pages/MarketDetailPage'
 import { ChannelPage } from './pages/ChannelPage'
 import { AgentHiringPage } from './pages/AgentHiringPage'
 import { NLockTimeJobsPage } from './pages/NLockTimeJobsPage'
+import { MyJobsPage } from './pages/MyJobsPage'
 import { SearchPage } from './pages/SearchPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { LandingPage } from './pages/LandingPage'
@@ -60,6 +61,7 @@ function AppShell({ modal, setModal }: { modal: ModalMode; setModal: (m: ModalMo
           <Route path="/markets" element={<MarketsPage />} />
           <Route path="/market/:id" element={<MarketDetailPage />} />
           <Route path="/channel/:id" element={<ChannelPage />} />
+          <Route path="/my-jobs" element={<MyJobsPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="*" element={
@@ -115,6 +117,7 @@ export default function App() {
                   <Route path="/channel/agent-hiring" element={<AgentHiringPage />} />
                   <Route path="/channel/nlocktime-jobs" element={<NLockTimeJobsPage />} />
                   <Route path="/channel/:id" element={<ChannelPage />} />
+                  <Route path="/my-jobs" element={<MyJobsPage />} />
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/agents" element={<AgentsPage />} />
                   <Route path="*" element={

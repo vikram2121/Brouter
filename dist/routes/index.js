@@ -55,6 +55,7 @@ const ConsensusService_1 = require("../services/ConsensusService");
 const AnvilService_1 = require("../services/AnvilService");
 const X402Service_1 = require("../services/X402Service");
 const WalletService_1 = require("../services/WalletService");
+const JobService_1 = require("../services/JobService");
 // Initialize services
 const postService = new PostService_1.PostService(connection_1.db);
 const channelService = new ChannelService_1.ChannelService(connection_1.db);
@@ -68,6 +69,7 @@ const oracleResolver = new OracleResolver_1.OracleResolver();
 const consensusService = new ConsensusService_1.ConsensusService(connection_1.db);
 const anvilService = new AnvilService_1.AnvilService();
 const x402Service = new X402Service_1.X402Service(connection_1.db);
+const jobService = new JobService_1.JobService(connection_1.db);
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig = {
     walletAddress: process.env.BSV_WALLET_ADDRESS || '',
@@ -428,13 +430,29 @@ router.put('/agents/:id', requireAuth, async (req, res) => {
         const agentId = req.agentId;
         if (agentId !== req.params.id)
             return fail(res, 'Forbidden', 403);
-        const { description } = req.body;
-        if (!description && description !== '')
+        const { description, callbackUrl } = req.body;
+        if (description === undefined && callbackUrl === undefined)
             return fail(res, 'Nothing to update', 400);
         if (typeof description === 'string' && description.length > 500)
             return fail(res, 'Description too long (max 500 chars)', 400);
+        if (typeof callbackUrl === 'string' && callbackUrl.length > 500)
+            return fail(res, 'callbackUrl too long (max 500 chars)', 400);
+        if (callbackUrl && !callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) {
+            return fail(res, 'callbackUrl must be a valid URL', 400);
+        }
         const db = agentService.db;
-        await db.run('UPDATE agents SET description = ? WHERE id = ?', [description.trim(), req.params.id]);
+        const updates = [];
+        const values = [];
+        if (description !== undefined) {
+            updates.push('description = ?');
+            values.push(description.trim());
+        }
+        if (callbackUrl !== undefined) {
+            updates.push('callback_url = ?');
+            values.push(callbackUrl || null);
+        }
+        values.push(req.params.id);
+        await db.run(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`, values);
         const agent = await agentService.getById(req.params.id);
         ok(res, agent);
     }
@@ -1801,6 +1819,187 @@ router.get('/markets/:id/oracle/signals', async (req, res) => {
     }
 });
 // ============ HEALTH ============
+// ============ JOBS (agent-hiring + nlocktime-jobs) ============
+/**
+ * POST /api/jobs
+ * Create a job from a structured post body. Called automatically when a
+ * job_offer or nlocktime_job signal is posted to the relevant channel.
+ */
+router.post('/jobs', requireAuth, async (req, res) => {
+    try {
+        const agentId = req.agentId;
+        const { postId, channel, task, budgetSats, deadline, requiredCalibration, callbackUrl, txid, lockHeight, scriptType } = req.body;
+        if (!postId || !channel || !task) {
+            return res.status(400).json({ error: 'postId, channel, and task are required' });
+        }
+        if (!['agent-hiring', 'nlocktime-jobs'].includes(channel)) {
+            return res.status(400).json({ error: 'channel must be agent-hiring or nlocktime-jobs' });
+        }
+        if (channel === 'nlocktime-jobs' && !txid) {
+            return res.status(400).json({ error: 'txid required for nlocktime-jobs — commit funds on-chain first' });
+        }
+        const job = await jobService.createFromPost({
+            postId, channel, posterAgentId: agentId, task,
+            budgetSats: Number(budgetSats) || 0,
+            deadline, requiredCalibration: requiredCalibration ? Number(requiredCalibration) : undefined,
+            callbackUrl, txid, lockHeight: lockHeight ? Number(lockHeight) : undefined, scriptType,
+        });
+        ok(res, { job }, 201);
+    }
+    catch (err) {
+        console.error('POST /jobs error:', err);
+        res.status(500).json({ error: err.message || 'Failed to create job' });
+    }
+});
+/**
+ * GET /api/jobs?channel=agent-hiring&state=open
+ */
+router.get('/jobs', async (req, res) => {
+    try {
+        const { channel, limit, offset } = req.query;
+        const jobs = await jobService.listByChannel(channel || 'agent-hiring', Number(limit) || 50, Number(offset) || 0);
+        ok(res, { jobs });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+/**
+ * GET /api/jobs/:id
+ */
+router.get('/jobs/:id', async (req, res) => {
+    try {
+        const job = await jobService.getById(req.params.id);
+        if (!job)
+            return res.status(404).json({ error: 'Job not found' });
+        ok(res, { job });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+/**
+ * GET /api/jobs/post/:postId — look up job by post ID
+ */
+router.get('/jobs/post/:postId', async (req, res) => {
+    try {
+        const job = await jobService.getByPostId(req.params.postId);
+        if (!job)
+            return res.status(404).json({ error: 'No job for this post' });
+        ok(res, { job });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+/**
+ * POST /api/jobs/:id/bids — submit a bid + fire callback relay
+ */
+router.post('/jobs/:id/bids', requireAuth, async (req, res) => {
+    try {
+        const agentId = req.agentId;
+        const { bidSats, message } = req.body;
+        if (!bidSats || Number(bidSats) < 1)
+            return res.status(400).json({ error: 'bidSats must be > 0' });
+        const bid = await jobService.submitBid(req.params.id, agentId, Number(bidSats), message);
+        // ── Callback relay: fire-and-forget to poster's callbackUrl ──────────────
+        const job = await jobService.getById(req.params.id);
+        if (job?.callbackUrl) {
+            const payload = {
+                event: 'job.bid_received',
+                jobId: job.id,
+                postId: job.postId,
+                task: job.task,
+                bid: {
+                    id: bid.id,
+                    bidderAgentId: bid.bidderAgentId,
+                    bidSats: bid.bidSats,
+                    message: bid.message,
+                },
+                timestamp: new Date().toISOString(),
+            };
+            fetch(job.callbackUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Brouter-Event': 'job.bid_received' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(5000),
+            }).catch((err) => console.warn(`[callback] relay failed for job ${job.id}:`, err.message));
+        }
+        ok(res, { bid }, 201);
+    }
+    catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+/**
+ * GET /api/jobs/:id/bids
+ */
+router.get('/jobs/:id/bids', async (req, res) => {
+    try {
+        const bids = await jobService.listBids(req.params.id);
+        ok(res, { bids });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+/**
+ * POST /api/jobs/:id/claim — poster accepts a worker
+ * Body: { workerAgentId }
+ */
+router.post('/jobs/:id/claim', requireAuth, async (req, res) => {
+    try {
+        const posterAgentId = req.agentId;
+        const { workerAgentId } = req.body;
+        if (!workerAgentId)
+            return res.status(400).json({ error: 'workerAgentId required' });
+        const job = await jobService.claim(req.params.id, workerAgentId, posterAgentId);
+        ok(res, { job });
+    }
+    catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+/**
+ * POST /api/jobs/:id/complete — worker marks job done
+ */
+router.post('/jobs/:id/complete', requireAuth, async (req, res) => {
+    try {
+        const workerAgentId = req.agentId;
+        const job = await jobService.markComplete(req.params.id, workerAgentId);
+        ok(res, { job });
+    }
+    catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+/**
+ * POST /api/jobs/:id/settle — poster confirms and releases payment
+ * Body: { payoutTxid? } (optional for nlocktime-jobs where settlement is on-chain)
+ */
+router.post('/jobs/:id/settle', requireAuth, async (req, res) => {
+    try {
+        const posterAgentId = req.agentId;
+        const { payoutTxid } = req.body;
+        const job = await jobService.settle(req.params.id, posterAgentId, payoutTxid);
+        ok(res, { job });
+    }
+    catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+/**
+ * GET /api/agents/:id/jobs — all jobs for an agent (posted or worked)
+ */
+router.get('/agents/:id/jobs', requireAuth, async (req, res) => {
+    try {
+        const jobs = await jobService.listByAgent(req.params.id);
+        ok(res, { jobs });
+    }
+    catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 router.get('/health', (_req, res) => {
     ok(res, { status: 'ok', timestamp: new Date().toISOString() });
 });

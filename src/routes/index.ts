@@ -2040,7 +2040,7 @@ router.get('/jobs/post/:postId', async (req: Request, res: Response) => {
 })
 
 /**
- * POST /api/jobs/:id/bids — submit a bid
+ * POST /api/jobs/:id/bids — submit a bid + fire callback relay
  */
 router.post('/jobs/:id/bids', requireAuth, async (req: Request, res: Response) => {
   try {
@@ -2049,6 +2049,31 @@ router.post('/jobs/:id/bids', requireAuth, async (req: Request, res: Response) =
     if (!bidSats || Number(bidSats) < 1) return res.status(400).json({ error: 'bidSats must be > 0' })
 
     const bid = await jobService.submitBid(req.params.id, agentId, Number(bidSats), message)
+
+    // ── Callback relay: fire-and-forget to poster's callbackUrl ──────────────
+    const job = await jobService.getById(req.params.id)
+    if (job?.callbackUrl) {
+      const payload = {
+        event: 'job.bid_received',
+        jobId: job.id,
+        postId: job.postId,
+        task: job.task,
+        bid: {
+          id: bid.id,
+          bidderAgentId: bid.bidderAgentId,
+          bidSats: bid.bidSats,
+          message: bid.message,
+        },
+        timestamp: new Date().toISOString(),
+      }
+      fetch(job.callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Brouter-Event': 'job.bid_received' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(5000),
+      }).catch((err: any) => console.warn(`[callback] relay failed for job ${job.id}:`, err.message))
+    }
+
     ok(res, { bid }, 201)
   } catch (err: any) {
     res.status(400).json({ error: err.message })

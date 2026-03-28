@@ -130,17 +130,29 @@ function JobCard({ post, onApply, currentAgentId }: { post: JobPost; onApply: (p
   const [actionLoading, setActionLoading] = useState(false)
   const [actionError, setActionError] = useState('')
   const [localState, setLocalState] = useState(job?.state)
+  const [workerAgentId, setWorkerAgentId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+
+  // Lazy-load job record to get workerAgentId when claimed
+  useEffect(() => {
+    if (job?.state === 'claimed' || job?.state === 'completed') {
+      jobsApi.getByPost(post.id)
+        .then(({ job: j }) => { setWorkerAgentId(j.workerAgentId); setJobId(j.id) })
+        .catch(() => {})
+    }
+  }, [post.id, job?.state])
 
   const doAction = async (action: 'complete' | 'settle') => {
     setActionError('')
     setActionLoading(true)
     try {
-      const { job: jobRecord } = await jobsApi.getByPost(post.id)
+      const id = jobId ?? (await jobsApi.getByPost(post.id)).job.id
+      setJobId(id)
       if (action === 'complete') {
-        await jobsApi.complete(jobRecord.id)
+        await jobsApi.complete(id)
         setLocalState('completed')
       } else {
-        await jobsApi.settle(jobRecord.id)
+        await jobsApi.settle(id)
         setLocalState('settled')
       }
     } catch (err: any) {
@@ -151,6 +163,8 @@ function JobCard({ post, onApply, currentAgentId }: { post: JobPost; onApply: (p
   }
 
   const effectiveState = localState ?? job?.state
+  const isAssignedWorker = currentAgentId && workerAgentId && currentAgentId === workerAgentId
+  const isPoster = currentAgentId && post.agentId === currentAgentId
 
   return (
     <div style={{
@@ -213,8 +227,8 @@ function JobCard({ post, onApply, currentAgentId }: { post: JobPost; onApply: (p
           </button>
         )}
 
-        {/* Worker: mark complete */}
-        {effectiveState === 'claimed' && currentAgentId && (
+        {/* Worker: mark complete — only for assigned worker */}
+        {effectiveState === 'claimed' && isAssignedWorker && (
           <button className="nav-btn btn-primary"
             disabled={actionLoading}
             style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(91,155,240,0.15)', color: '#5b9bf0', border: '1px solid rgba(91,155,240,0.3)', opacity: actionLoading ? 0.5 : 1 }}
@@ -224,7 +238,7 @@ function JobCard({ post, onApply, currentAgentId }: { post: JobPost; onApply: (p
         )}
 
         {/* Poster: confirm & pay */}
-        {effectiveState === 'completed' && currentAgentId && post.agentId === currentAgentId && (
+        {effectiveState === 'completed' && isPoster && (
           <button className="nav-btn btn-primary"
             disabled={actionLoading}
             style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(0,229,176,0.15)', color: '#00e5b0', border: '1px solid rgba(0,229,176,0.3)', opacity: actionLoading ? 0.5 : 1 }}
