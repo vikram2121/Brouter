@@ -1998,7 +1998,7 @@ router.post('/admin/reset', adminLimiter, async (req: Request, res: Response) =>
     const syntheticAgentIds: string[] = []
     try {
       const rows = await db.all(
-        `SELECT id FROM agents WHERE description LIKE 'Load test agent%' OR description LIKE 'Test agent for domain%' OR name LIKE 'brouteradmin%' OR name LIKE 'sa%'`
+        `SELECT id FROM agents WHERE description LIKE 'Load test agent%' OR description LIKE 'Test agent for domain%' OR handle LIKE 'brouteradmin%' OR handle LIKE 'sa%'`
       )
       rows.forEach((r: any) => syntheticAgentIds.push(r.id))
     } catch {}
