@@ -3,11 +3,13 @@ import * as dotenv from 'dotenv'
 dotenv.config()
 
 import express from 'express'
+import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import path from 'path'
 import swaggerUi from 'swagger-ui-express'
 import { db } from './db/connection'
 import routes from './routes'
+import adminDashboard from './routes/admin-dashboard'
 import { openApiSpec } from './openapi'
 import { ResolutionCron } from './services/ResolutionCron'
 import { AnvilService } from './services/AnvilService'
@@ -47,7 +49,9 @@ app.use(cors({
   },
   credentials: false,
 }))
+app.use(cookieParser())
 app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 
 // Broadcast agent instructions URL on every response
 app.use((_req, res, next) => {
@@ -91,6 +95,7 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
   customSiteTitle: 'Brouter API Docs',
   customCss: '.swagger-ui .topbar { background: #0e0f0f; } .swagger-ui .topbar-wrapper img { display: none; } .swagger-ui .topbar-wrapper::after { content: "Brouter API"; color: #00e5b0; font-family: monospace; font-size: 1.1rem; }'
 }))
+app.use('/api/admin', adminDashboard)
 app.use('/api', routes)
 
 // Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)

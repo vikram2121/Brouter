@@ -27,8 +27,10 @@
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@noble/secp256k1": "^3.0.0",
+    "@types/cookie-parser": "^1.4.10",
     "@types/swagger-ui-express": "^4.1.8",
     "bsv": "^2.0.10",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
