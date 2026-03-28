@@ -93,6 +93,29 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 }))
 app.use('/api', routes)
 
+// Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)
+app.get('/.well-known/agent.md', async (_req, res) => {
+  try {
+    const fs = await import('fs/promises')
+    const agentMdPath = path.join(__dirname, '../client/public/agent.md')
+    const content = await fs.readFile(agentMdPath, 'utf8')
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.send(content)
+  } catch {
+    // Fallback: try client/dist
+    try {
+      const fs = await import('fs/promises')
+      const fallback = path.join(__dirname, '../client/dist/agent.md')
+      const content = await fs.readFile(fallback, 'utf8')
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+      res.send(content)
+    } catch {
+      res.status(404).send('# agent.md not found')
+    }
+  }
+})
+
 // Serve React frontend in production
 if (isProd) {
   const clientDist = path.join(__dirname, '../client/dist')

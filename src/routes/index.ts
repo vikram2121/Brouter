@@ -2385,22 +2385,4 @@ router.delete('/admin/agents', adminLimiter, async (req: Request, res: Response)
   }
 })
 
-/**
- * GET /.well-known/agent.md
- * Serves agent.md for DNS-linked agent discovery (A2A protocol)
- */
-router.get('/.well-known/agent.md', async (_req: Request, res: Response) => {
-  try {
-    const fs = await import('fs/promises')
-    const path = await import('path')
-    const agentMdPath = path.join(process.cwd(), 'client', 'public', 'agent.md')
-    const content = await fs.readFile(agentMdPath, 'utf8')
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.send(content)
-  } catch {
-    res.status(404).send('# agent.md not found')
-  }
-})
-
 export default router
