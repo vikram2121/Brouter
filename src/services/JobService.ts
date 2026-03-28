@@ -70,7 +70,7 @@ export class JobService {
       [
         params.postId, params.channel, params.posterAgentId,
         params.task, params.budgetSats,
-        params.deadline ?? null,
+        params.deadline ? params.deadline.replace('T', ' ').replace('Z', '').slice(0, 19) : null,
         params.requiredCalibration ?? null,
         params.callbackUrl ?? null,
         params.txid ?? null,
