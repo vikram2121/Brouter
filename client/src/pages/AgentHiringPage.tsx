@@ -120,12 +120,37 @@ function BidModal({ post, onClose }: { post: JobPost; onClose: () => void }) {
   )
 }
 
-function JobCard({ post, onApply }: { post: JobPost; onApply: (p: JobPost) => void }) {
+function JobCard({ post, onApply, currentAgentId }: { post: JobPost; onApply: (p: JobPost) => void; currentAgentId?: string | null }) {
   const job = post.jobMeta
   const deadlineStr = job?.deadline
     ? new Date(job.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
     : null
   const isPast = job?.deadline ? new Date(job.deadline) < new Date() : false
+
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [localState, setLocalState] = useState(job?.state)
+
+  const doAction = async (action: 'complete' | 'settle') => {
+    setActionError('')
+    setActionLoading(true)
+    try {
+      const { job: jobRecord } = await jobsApi.getByPost(post.id)
+      if (action === 'complete') {
+        await jobsApi.complete(jobRecord.id)
+        setLocalState('completed')
+      } else {
+        await jobsApi.settle(jobRecord.id)
+        setLocalState('settled')
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Action failed')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const effectiveState = localState ?? job?.state
 
   return (
     <div style={{
@@ -140,7 +165,7 @@ function JobCard({ post, onApply }: { post: JobPost; onApply: (p: JobPost) => vo
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {/* Header row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <StateBadge state={job?.state} />
+          <StateBadge state={effectiveState} />
           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
             {post.agentName ?? post.agentId}
           </span>
@@ -176,16 +201,44 @@ function JobCard({ post, onApply }: { post: JobPost; onApply: (p: JobPost) => vo
         </div>
       </div>
 
-      {/* Right: apply button */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: '0.25rem' }}>
-        {job?.state === 'open' && !isPast && (
-          <button
-            className="nav-btn btn-primary"
+      {/* Right: action buttons */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.4rem', paddingTop: '0.25rem' }}>
+
+        {/* Anyone can apply if open */}
+        {effectiveState === 'open' && !isPast && (
+          <button className="nav-btn btn-primary"
             style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap' }}
-            onClick={() => onApply(post)}
-          >
+            onClick={() => onApply(post)}>
             Apply →
           </button>
+        )}
+
+        {/* Worker: mark complete */}
+        {effectiveState === 'claimed' && currentAgentId && (
+          <button className="nav-btn btn-primary"
+            disabled={actionLoading}
+            style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(91,155,240,0.15)', color: '#5b9bf0', border: '1px solid rgba(91,155,240,0.3)', opacity: actionLoading ? 0.5 : 1 }}
+            onClick={() => doAction('complete')}>
+            {actionLoading ? '…' : '✓ Mark Complete'}
+          </button>
+        )}
+
+        {/* Poster: confirm & pay */}
+        {effectiveState === 'completed' && currentAgentId && post.agentId === currentAgentId && (
+          <button className="nav-btn btn-primary"
+            disabled={actionLoading}
+            style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(0,229,176,0.15)', color: '#00e5b0', border: '1px solid rgba(0,229,176,0.3)', opacity: actionLoading ? 0.5 : 1 }}
+            onClick={() => doAction('settle')}>
+            {actionLoading ? '…' : '₿ Confirm & Pay'}
+          </button>
+        )}
+
+        {effectiveState === 'settled' && (
+          <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#c084fc' }}>✓ paid</span>
+        )}
+
+        {actionError && (
+          <span style={{ fontSize: '0.65rem', color: 'var(--coral)', fontFamily: "'DM Mono', monospace", maxWidth: '120px', textAlign: 'right' }}>{actionError}</span>
         )}
       </div>
     </div>
@@ -214,7 +267,7 @@ function SignalCard({ post }: { post: Post }) {
 }
 
 export function AgentHiringPage() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, agent } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
@@ -349,7 +402,7 @@ export function AgentHiringPage() {
 
       {displayed.map(post => (
         post.jobMeta
-          ? <JobCard key={post.id} post={post} onApply={p => setBiddingPost(p)} />
+          ? <JobCard key={post.id} post={post} onApply={p => setBiddingPost(p)} currentAgentId={agent?.id} />
           : <SignalCard key={post.id} post={post} />
       ))}
     </main>

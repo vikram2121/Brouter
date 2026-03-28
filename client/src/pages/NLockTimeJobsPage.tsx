@@ -14,7 +14,7 @@ interface NLockPost extends Post {
     lockHeight?: number
     currentHeight?: number
     workerPubkey?: string
-    state?: 'locked' | 'claimed' | 'completed' | 'expired' | 'settled'
+    state?: 'open' | 'locked' | 'claimed' | 'completed' | 'expired' | 'settled'
     scriptType?: 'nlocktime' | 'cltv'
   }
 }
@@ -283,11 +283,36 @@ function ClaimModal({ post, onClose, onClaimed }: { post: NLockPost; onClose: ()
   )
 }
 
-function NLockCard({ post, onBid, onClaim }: { post: NLockPost; onBid: (p: NLockPost) => void; onClaim: (p: NLockPost) => void }) {
+function NLockCard({ post, onBid, onClaim, currentAgentId }: { post: NLockPost; onBid: (p: NLockPost) => void; onClaim: (p: NLockPost) => void; currentAgentId?: string | null }) {
   const job = post.nlockMeta
   const countdown = blockCountdown(job?.lockHeight, job?.currentHeight)
   const isExpired = countdown === 'expired'
-  const isOpen = job?.state === 'locked' && !isExpired
+  const isOpen = (job?.state === 'locked' || job?.state === 'open') && !isExpired
+
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [localState, setLocalState] = useState(job?.state)
+
+  const doAction = async (action: 'complete' | 'settle') => {
+    setActionError('')
+    setActionLoading(true)
+    try {
+      const { job: jobRecord } = await jobsApi.getByPost(post.id)
+      if (action === 'complete') {
+        await jobsApi.complete(jobRecord.id)
+        setLocalState('completed')
+      } else {
+        await jobsApi.settle(jobRecord.id)
+        setLocalState('settled')
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Action failed')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const effectiveState = localState ?? job?.state
 
   return (
     <div style={{
@@ -302,7 +327,7 @@ function NLockCard({ post, onBid, onClaim }: { post: NLockPost; onBid: (p: NLock
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <StateBadge state={isExpired ? 'expired' : job?.state} />
+            <StateBadge state={isExpired ? 'expired' : effectiveState} />
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>
               {post.agentName ?? post.agentId}
             </span>
@@ -363,25 +388,49 @@ function NLockCard({ post, onBid, onClaim }: { post: NLockPost; onBid: (p: NLock
 
         {/* Right: action buttons */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.4rem', paddingTop: '0.25rem' }}>
+
+          {/* Open: bid + view bids */}
           {isOpen && (
             <>
-              {/* Worker: bid on the job */}
-              <button
-                className="nav-btn btn-primary"
+              <button className="nav-btn btn-primary"
                 style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }}
-                onClick={() => onBid(post)}
-              >
+                onClick={() => onBid(post)}>
                 Bid ⚡
               </button>
-              {/* Poster: view bids + select worker */}
-              <button
-                className="nav-btn btn-ghost"
+              <button className="nav-btn btn-ghost"
                 style={{ fontSize: '0.65rem', padding: '0.3rem 0.7rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}
-                onClick={() => onClaim(post)}
-              >
+                onClick={() => onClaim(post)}>
                 View Bids / Accept →
               </button>
             </>
+          )}
+
+          {/* Worker: mark complete */}
+          {effectiveState === 'claimed' && currentAgentId && (
+            <button className="nav-btn btn-primary"
+              disabled={actionLoading}
+              style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(91,155,240,0.15)', color: '#5b9bf0', border: '1px solid rgba(91,155,240,0.3)', opacity: actionLoading ? 0.5 : 1 }}
+              onClick={() => doAction('complete')}>
+              {actionLoading ? '…' : '✓ Mark Complete'}
+            </button>
+          )}
+
+          {/* Poster: confirm & pay */}
+          {effectiveState === 'completed' && currentAgentId && post.agentId === currentAgentId && (
+            <button className="nav-btn btn-primary"
+              disabled={actionLoading}
+              style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(0,229,176,0.15)', color: '#00e5b0', border: '1px solid rgba(0,229,176,0.3)', opacity: actionLoading ? 0.5 : 1 }}
+              onClick={() => doAction('settle')}>
+              {actionLoading ? '…' : '₿ Confirm & Pay'}
+            </button>
+          )}
+
+          {effectiveState === 'settled' && (
+            <span style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: '#c084fc' }}>✓ paid</span>
+          )}
+
+          {actionError && (
+            <span style={{ fontSize: '0.65rem', color: 'var(--coral)', fontFamily: "'DM Mono', monospace", maxWidth: '120px', textAlign: 'right' }}>{actionError}</span>
           )}
         </div>
       </div>
@@ -426,7 +475,7 @@ function SignalCard({ post }: { post: Post }) {
 }
 
 export function NLockTimeJobsPage() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, agent } = useAuth()
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
@@ -574,7 +623,7 @@ export function NLockTimeJobsPage() {
 
       {displayed.map(post => (
         post.nlockMeta
-          ? <NLockCard key={post.id} post={post} onBid={p => setBiddingPost(p)} onClaim={p => setClaimingPost(p)} />
+          ? <NLockCard key={post.id} post={post} onBid={p => setBiddingPost(p)} onClaim={p => setClaimingPost(p)} currentAgentId={agent?.id} />
           : <SignalCard key={post.id} post={post} />
       ))}
     </main>
