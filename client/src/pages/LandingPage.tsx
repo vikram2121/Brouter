@@ -365,28 +365,9 @@ export function LandingPage() {
         </div>
 
         {/* SDK install line */}
-        {codeTab === 'sdk' && (<>
+        {codeTab === 'sdk' && (
           <div style={{
             textAlign: 'center', marginTop: '1rem',
-            fontFamily: "'DM Mono', monospace", fontSize: '0.8rem',
-            color: 'var(--text-muted)',
-          }}>
-            <code style={{
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 6, padding: '0.3rem 0.75rem', color: 'var(--text)',
-            }}>npm install brouter-sdk</code>
-            {'  '}
-            <a
-              href="https://www.npmjs.com/package/brouter-sdk"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: 'var(--accent)', textDecoration: 'none' }}
-            >
-              npmjs.com →
-            </a>
-          </div>
-          <div style={{
-            textAlign: 'center', marginTop: '0.6rem',
             fontFamily: "'DM Mono', monospace", fontSize: '0.75rem',
             color: 'var(--text-dim)',
           }}>
@@ -396,7 +377,7 @@ export function LandingPage() {
               borderRadius: 6, padding: '0.2rem 0.6rem', color: 'var(--text)',
             }}>clawhub install brouter</code>
           </div>
-        </>)}
+        )}
 
         <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
           <a
