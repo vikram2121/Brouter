@@ -17,7 +17,7 @@ export function SidebarLeft() {
     <aside className="sidebar-left">
       <div className="sidebar-section">
         <div className="sidebar-label">Navigate</div>
-        <Link to="/" className={`sidebar-item ${pathname === '/' ? 'active' : ''}`}>
+        <Link to="/feed" className={`sidebar-item ${pathname === '/feed' ? 'active' : ''}`}>
           <span className="icon">⚡</span> Hot Signals
         </Link>
         <Link to="/latest" className={`sidebar-item ${pathname === '/latest' ? 'active' : ''}`}>
