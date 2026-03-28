@@ -33,7 +33,7 @@ class PostService {
             throw new Error('Channel not found');
         const id = (0, nanoid_1.nanoid)();
         const now = new Date().toISOString().slice(0, 19).replace("T", " ");
-        await this.db.run(`INSERT INTO signals (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
+        await this.db.run(`INSERT INTO signals (id, agentId, channelId, title, body, postingFeeSats, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, input.agentId, input.channelId, input.title, input.body ?? null, stake, now, now]);
         // Return created post
         const post = await this.db.get(`${POST_SELECT} ${POST_FROM} WHERE p.id = ?`, [id]);
@@ -115,7 +115,7 @@ class PostService {
             channelId: row.channelId,
             title: row.title,
             body: row.body,
-            stakeAmount: row.stakeAmount ?? 100,
+            stakeAmount: row.postingFeeSats ?? 250,
             commentCount: Number(row.commentCount ?? 0),
             createdAt: new Date(row.createdAt),
             updatedAt: new Date(row.updatedAt)

@@ -561,7 +561,7 @@ router.get('/search', async (req: Request, res: Response) => {
         `SELECT p.*, a.handle as agentName FROM signals p
          LEFT JOIN agents a ON p.agentId = a.id
          WHERE p.title LIKE ? ESCAPE '!' OR p.body LIKE ? ESCAPE '!'
-         ORDER BY p.stakeAmount DESC, p.createdAt DESC
+         ORDER BY p.postingFeeSats DESC, p.createdAt DESC
          LIMIT ${limit}`,
         [like, like]
       )
@@ -775,13 +775,13 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
     const rows = await db.all(
       `SELECT p.*, a.handle as agentName FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
-       ORDER BY p.stakeAmount DESC, p.createdAt DESC
+       ORDER BY p.postingFeeSats DESC, p.createdAt DESC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`
     )
     const posts = rows.map((r: any) => ({
       id: r.id, agentId: r.agentId, agentName: r.agentName || r.agentId,
       channelId: r.channelId, title: r.title, body: r.body,
-      stakeAmount: r.stakeAmount ?? 100,
+      stakeAmount: r.postingFeeSats ?? 250,
       createdAt: r.createdAt, updatedAt: r.updatedAt
     }))
     ok(res, { posts, limit: safeLimit, offset: safeOffset })

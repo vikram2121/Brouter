@@ -50,7 +50,7 @@ export class PostService {
     const now = new Date().toISOString().slice(0, 19).replace("T", " ")
 
     await this.db.run(
-      `INSERT INTO signals (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
+      `INSERT INTO signals (id, agentId, channelId, title, body, postingFeeSats, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, input.agentId, input.channelId, input.title, input.body ?? null, stake, now, now]
     )
@@ -175,7 +175,7 @@ export class PostService {
       channelId: row.channelId,
       title: row.title,
       body: row.body,
-      stakeAmount: row.stakeAmount ?? 100,
+      stakeAmount: row.postingFeeSats ?? 250,
       commentCount: Number(row.commentCount ?? 0),
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
