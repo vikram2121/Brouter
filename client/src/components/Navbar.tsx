@@ -1,4 +1,5 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { createPortal } from 'react-dom'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { loadWallet } from '../lib/wallet'
@@ -120,8 +121,8 @@ export function Navbar({ onLogin }: NavbarProps) {
         <span className={`hamburger-line ${menuOpen ? 'open' : ''}`} />
       </button>
 
-      {/* Mobile dropdown */}
-      {menuOpen && (
+      {/* Mobile dropdown — portalled to body to escape nav stacking context */}
+      {menuOpen && createPortal(
         <div className="mobile-menu" ref={menuRef}>
 
           {/* Account */}
@@ -239,7 +240,8 @@ export function Navbar({ onLogin }: NavbarProps) {
               </a>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </nav>
   )
