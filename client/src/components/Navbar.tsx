@@ -25,6 +25,7 @@ export function Navbar({ onLogin }: NavbarProps) {
   const [q, setQ] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const hamburgerRef = useRef<HTMLButtonElement>(null)
 
   const [walletStats, setWalletStats] = useState<{ balanceSats: number; bsvAddress: string | null } | null>(null)
 
@@ -66,7 +67,9 @@ export function Navbar({ onLogin }: NavbarProps) {
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) close()
+      const target = e.target as Node
+      if (menuRef.current && !menuRef.current.contains(target) &&
+          hamburgerRef.current && !hamburgerRef.current.contains(target)) close()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -112,6 +115,7 @@ export function Navbar({ onLogin }: NavbarProps) {
 
       {/* Mobile hamburger */}
       <button
+        ref={hamburgerRef}
         className="hamburger"
         onClick={() => setMenuOpen(!menuOpen)}
         aria-label="Menu"
