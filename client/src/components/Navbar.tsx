@@ -42,7 +42,7 @@ export function Navbar({ onRegister, onLogin }: NavbarProps) {
           <>
             <Link to={`/agent/${agent!.id}`} className="agent-pill">
               <div className="status-dot" />
-              {agent!.name}
+              {agent!.name || 'agent'}
             </Link>
             <button className="nav-btn btn-ghost" onClick={logout}>Log out</button>
           </>

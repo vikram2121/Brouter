@@ -8,11 +8,13 @@ import { loadWallet } from '../lib/wallet'
 
 interface WalletStats {
   bsvAddress: string | null
+  balanceSats: number
   totalEarnedSats: number
   earned7dSats: number
   stakedSats: number
   x402Count: number
   tracesSold: number
+  handle: string | null
 }
 
 // Simulated live tx feed
@@ -118,22 +120,20 @@ export function SidebarRight() {
             const stakedBsv = stats ? (stats.stakedSats / 1e8).toFixed(4) : '0.0000'
             const x402Count = stats ? stats.x402Count.toLocaleString() : '0'
             const tracesSold = stats ? stats.tracesSold : 0
-            const balanceBsv = onchainSats !== null ? (onchainSats / 1e8).toFixed(4) : null
+            // Combine platform balance (DB) + on-chain (WhatsOnChain)
+            const platformSats = stats?.balanceSats || 0
+            const totalSats = platformSats + (onchainSats || 0)
+            const balanceBsv = (totalSats / 1e8).toFixed(4)
             return (
               <>
                 <div className="wallet-address">{addrDisplay}</div>
                 <div className="wallet-balance">
-                  {balanceBsv !== null ? (
-                    <>
-                      <span className="balance-num">{balanceBsv}</span>
-                      <span className="balance-unit">BSV</span>
-                    </>
-                  ) : onchainLoading ? (
-                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>
-                      {bsvAddress ? 'fetching balance…' : 'no address found'}
+                  <span className="balance-num">{balanceBsv}</span>
+                  <span className="balance-unit">BSV</span>
+                  {platformSats > 0 && (
+                    <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--text-dim)', marginTop: '0.15rem' }}>
+                      {platformSats.toLocaleString()} sats platform · {(onchainSats || 0).toLocaleString()} sats on-chain
                     </span>
-                  ) : (
-                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>0.0000 BSV</span>
                   )}
                 </div>
                 <div className="wallet-stats">

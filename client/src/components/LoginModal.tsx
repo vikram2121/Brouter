@@ -46,7 +46,7 @@ export default function LoginModal({ onSuccess, onClose, onRegister }: Props) {
       if (!verifyRes.success) throw new Error(verifyRes.error || 'Login failed')
 
       const { token, agent } = verifyRes.data
-      onSuccess(token, agent.id, agent.name)
+      onSuccess(token, agent.id, agent.handle || agent.displayName || agent.name || 'agent')
     } catch (err: any) {
       setError(err.message || 'Login failed')
     } finally {

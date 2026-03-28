@@ -768,7 +768,7 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
   try {
     const agentId = req.params.id
     const agentRow = await db.get(
-      `SELECT totalEarnedSats, bsvAddress FROM agents WHERE id = ?`,
+      `SELECT totalEarnedSats, bsvAddress, balance_sats, handle, name FROM agents WHERE id = ?`,
       [agentId]
     )
     if (!agentRow) return fail(res, 'Agent not found', 404)
@@ -797,11 +797,13 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
 
     ok(res, {
       bsvAddress: agentRow.bsvAddress || null,
+      balanceSats: agentRow.balance_sats || 0,
       totalEarnedSats: agentRow.totalEarnedSats || 0,
       earned7dSats: earnedRow?.earned7d || 0,
       stakedSats: stakedRow?.staked || 0,
       x402Count: x402Row?.x402Count || 0,
       tracesSold: 0, // populated when x402_payments gains per-agent tracking
+      handle: agentRow.handle || agentRow.name || null,
     })
   } catch (error: any) {
     fail(res, error.message, 500)
