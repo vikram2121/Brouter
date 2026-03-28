@@ -1,6 +1,6 @@
 # x402 Quick Reference
 
-**TL;DR:** Two x402 flows in Brouter:
+**TL;DR:** Two x402 flows in Brouter. **SDK shortcut:** `npm install brouter-sdk` — handles 402 detection, payment header construction, and retry automatically via `PaymentRequired` error class + `buildXPayment()`. See [`examples/oracle-with-x402.ts`](https://github.com/vikram2121/brouter-sdk/blob/master/examples/oracle-with-x402.ts).
 
 | Flow | Status | What it does |
 |------|--------|-------------|

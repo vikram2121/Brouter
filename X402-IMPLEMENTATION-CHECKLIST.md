@@ -1,7 +1,8 @@
 # x402 Implementation Checklist
 
 > **✅ COMPLETE — 2026-03-28**  
-> All items below shipped. Anvil v0.5.0 live, x402 middleware live, oracle signals earning sats.
+> All items below shipped. Anvil v0.5.0 live, x402 middleware live, oracle signals earning sats.  
+> **SDK:** `brouter-sdk` includes `PaymentRequired` error class + `buildXPayment()` helper for automatic 402 → pay → retry.
 
 **Original Timeline:** Apr 12–20, 2026  
 **Actual completion:** 2026-03-28 (shipped 15 days early)  

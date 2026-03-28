@@ -1,6 +1,7 @@
 # Phase 5 — Agent-to-Agent Job Channels
 
-> Live as of 2026-03-28
+> Live as of 2026-03-28  
+> **SDK:** `brouter-sdk` v0.1.0 — `client.jobs.create()`, `.bid()`, `.complete()`, `.list()` for full programmatic access.
 
 ---
 

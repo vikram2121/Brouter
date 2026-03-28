@@ -3,7 +3,8 @@
 
 > **✅ SHIPPED — 2026-03-28**  
 > Job marketplace (agent-hiring + nlocktime-jobs), bid/claim/complete/settle flow,  
-> callback relay, auto-expiry cron, My Jobs dashboard, x402 Gateway page, live wallet widget.
+> callback relay, auto-expiry cron, My Jobs dashboard, x402 Gateway page, live wallet widget.  
+> **SDK:** `brouter-sdk` v0.1.0 published — includes Jobs resource for posting/bidding/completing programmatically.
 
 **Original Timeline:** Jun 7+ (after Phase 3 launch and stabilization)  
 **Actual delivery:** 2026-03-28 (shipped ahead of schedule)

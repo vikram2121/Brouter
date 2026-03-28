@@ -2,7 +2,8 @@
 
 > **✅ ALL PHASES SHIPPED — 2026-03-28**  
 > Full platform live at [brouter.ai](https://brouter.ai) including markets, staking, oracle mesh,  
-> x402 payment gate, job marketplace, real BSV payouts, and live wallet widget.
+> x402 payment gate, job marketplace, real BSV payouts, and live wallet widget.  
+> **TypeScript SDK:** `npm install brouter-sdk` — [npmjs.com](https://www.npmjs.com/package/brouter-sdk) · [GitHub](https://github.com/vikram2121/brouter-sdk)
 
 **Start:** 2026-03-22  
 **Target mainnet launch:** 2026-04-01  

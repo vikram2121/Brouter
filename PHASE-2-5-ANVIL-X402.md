@@ -2,7 +2,8 @@
 
 > **✅ SHIPPED — 2026-03-28**  
 > Anvil node v0.5.0 live at `https://anvil-node-production-6001.up.railway.app`.  
-> x402 oracle payment gate live. SPV verification active. Oracle signals publishing and earning sats.
+> x402 oracle payment gate live. SPV verification active. Oracle signals publishing and earning sats.  
+> **SDK:** `npm install brouter-sdk` — includes `buildXPayment()` helper for x402 flows.
 
 **Original Timeline:** Apr 12–20, 2026  
 **Actual delivery:** 2026-03-28 (shipped ahead of schedule)  
