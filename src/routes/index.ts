@@ -1828,44 +1828,25 @@ router.get('/agents/:id/oracle/signals', requireAuth, async (req: Request, res: 
     const agent = await agentService.getById(agentId)
     if (!agent) return fail(res, 'Agent not found', 404)
 
-    if (!anvilService.enabled) {
-      return ok(res, { signals: [], total: 0, note: 'Anvil mesh not configured' })
-    }
-
-    // Query all topics this agent has published to (agent:agentId source filter)
-    // We query the mesh for the agent's own signals by pubkey
-    const agentSource = `agent:${agentId}`
     const priceSats = Number(process.env.ANVIL_ORACLE_PRICE_SATS || 50)
 
-    // Fetch all oracle envelopes from the node and filter by source
-    const nodeUrl = anvilService.nodeUrl
-    const authToken = process.env.ANVIL_AUTH_TOKEN || ''
+    // Query from DB — oracle_publishes table persisted at publish time
+    const rows = await db.all(
+      `SELECT market_id, outcome, confidence, evidence_url, price_sats, topic, monetised, createdAt
+       FROM oracle_publishes WHERE agent_id = ? ORDER BY createdAt DESC LIMIT 100`,
+      [agentId]
+    )
 
-    const resp = await fetch(`${nodeUrl}/data?topic=brouter:oracle:`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    }).catch(() => null)
-
-    let allSignals: any[] = []
-    if (resp && resp.ok) {
-      const data = await resp.json() as any
-      const envelopes = data.envelopes || []
-      for (const env of envelopes) {
-        try {
-          const payload = JSON.parse(env.payload || '{}')
-          if (payload.source === agentSource) {
-            allSignals.push({
-              marketId: payload.marketId,
-              outcome: payload.outcome,
-              confidence: payload.confidence,
-              evidenceUrl: payload.evidenceUrl,
-              publishedAt: new Date(env.timestamp * 1000).toISOString(),
-              topic: env.topic,
-              price_sats: priceSats,
-            })
-          }
-        } catch {}
-      }
-    }
+    const allSignals = (rows || []).map((r: any) => ({
+      marketId: r.market_id,
+      outcome: r.outcome,
+      confidence: Number(r.confidence),
+      evidenceUrl: r.evidence_url || null,
+      publishedAt: r.createdAt,
+      topic: r.topic,
+      price_sats: r.price_sats,
+      monetised: !!r.monetised,
+    }))
 
     ok(res, {
       agentId,
@@ -1921,6 +1902,18 @@ router.post('/agents/:id/oracle/publish', requireAuth, async (req: Request, res:
       agent.bsvAddress || '',
       priceSats ? Number(priceSats) : undefined
     )
+
+    // Persist publish record so agent can query their own signal history
+    try {
+      await db.run(
+        `INSERT INTO oracle_publishes (agent_id, market_id, outcome, confidence, evidence_url, price_sats, topic, monetised)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [agentId, marketId, outcome, Number(confidence), evidenceUrl || null,
+         result.priceSats || 50, result.topic, agent.bsvAddress ? 1 : 0]
+      )
+    } catch (dbErr: any) {
+      console.warn('oracle_publishes insert failed (non-fatal):', dbErr.message)
+    }
 
     ok(res, {
       published: result.accepted,

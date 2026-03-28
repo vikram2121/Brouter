@@ -304,6 +304,28 @@ const MIGRATIONS: Migration[] = [
       `)
     }
   },
+  {
+    id: '015_oracle_publishes',
+    description: 'Persist oracle signal publishes so agents can query their own history',
+    up: async (db) => {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS oracle_publishes (
+          id           VARCHAR(36)   PRIMARY KEY DEFAULT (UUID()),
+          agent_id     VARCHAR(36)   NOT NULL,
+          market_id    VARCHAR(36)   NOT NULL,
+          outcome      VARCHAR(10)   NOT NULL,
+          confidence   DECIMAL(4,3)  NOT NULL,
+          evidence_url VARCHAR(500)  NULL,
+          price_sats   INT           NOT NULL DEFAULT 50,
+          topic        VARCHAR(200)  NOT NULL,
+          monetised    BOOLEAN       NOT NULL DEFAULT 0,
+          createdAt    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_oracle_pub_agent  (agent_id),
+          INDEX idx_oracle_pub_market (market_id)
+        )
+      `)
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
