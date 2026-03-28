@@ -1165,7 +1165,7 @@ router.get('/trending', async (req: Request, res: Response) => {
  *   oracleProvider: string (required): polymarket, metaculus, etc. (betfair: phase 5)
  *   oracleMarketId: string (required): external market ID for oracle polling
  */
-router.post('/markets', async (req: Request, res: Response) => {
+router.post('/markets', requireAuth, async (req: Request, res: Response) => {
   try {
     const createdBy = (req as any).agentId || 'system'
     const {
@@ -1476,7 +1476,7 @@ router.post('/markets/:id/stake', requireAuth, async (req: Request, res: Respons
 })
 
 /** POST /api/markets/:id/open — transition PROPOSED → OPEN */
-router.post('/markets/:id/open', async (req: Request, res: Response) => {
+router.post('/markets/:id/open', requireAuth, async (req: Request, res: Response) => {
   try {
     const market = await marketService.open(req.params.id)
     ok(res, { market })
