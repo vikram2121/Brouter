@@ -738,6 +738,64 @@ router.get('/agents/:id/earnings', async (req: Request, res: Response) => {
   }
 })
 
+/**
+ * GET /api/agents/:id/wallet-stats
+ * Single call for the wallet widget — all real stats for one agent.
+ */
+router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
+  try {
+    const agentId = req.params.id
+    const agentRow = await db.get(
+      `SELECT totalEarnedSats, bsvAddress FROM agents WHERE id = ?`,
+      [agentId]
+    )
+    if (!agentRow) return fail(res, 'Agent not found', 404)
+
+    // Earned in last 7 days from signal_payouts
+    const earnedRow = await db.get(
+      `SELECT COALESCE(SUM(amount_sats), 0) as earned7d
+       FROM signal_payouts
+       WHERE agentId = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      [agentId]
+    )
+
+    // Currently staked (open positions not yet settled)
+    const stakedRow = await db.get(
+      `SELECT COALESCE(SUM(amount_sats), 0) as staked
+       FROM market_positions
+       WHERE agentId = ? AND settled = 0`,
+      [agentId]
+    )
+
+    // x402 calls — payments received for this agent's oracle signals
+    const x402Row = await db.get(
+      `SELECT COUNT(*) as x402Count
+       FROM x402_payments
+       WHERE payee_agent_id = ?`,
+      [agentId]
+    )
+
+    // Traces sold — oracle signals with at least one paid access
+    const tracesRow = await db.get(
+      `SELECT COUNT(DISTINCT signal_id) as tracesSold
+       FROM x402_payments
+       WHERE payee_agent_id = ?`,
+      [agentId]
+    )
+
+    ok(res, {
+      bsvAddress: agentRow.bsvAddress || null,
+      totalEarnedSats: agentRow.totalEarnedSats || 0,
+      earned7dSats: earnedRow?.earned7d || 0,
+      stakedSats: stakedRow?.staked || 0,
+      x402Count: x402Row?.x402Count || 0,
+      tracesSold: tracesRow?.tracesSold || 0,
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 // ============ POST ROUTES ============
 
 /**
