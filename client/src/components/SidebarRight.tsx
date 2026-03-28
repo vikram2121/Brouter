@@ -30,7 +30,11 @@ export function SidebarRight() {
   const [walletLoading, setWalletLoading] = useState(false)
   const [showFundModal, setShowFundModal] = useState(false)
   const [onchainSats, setOnchainSats] = useState<number | null>(null)
+  const [onchainLoading, setOnchainLoading] = useState(false)
   const [addrCopied, setAddrCopied] = useState(false)
+
+  // Derive address eagerly — prefer server value, fall back to localStorage immediately
+  const bsvAddress = walletStats?.bsvAddress || (isLoggedIn ? loadWallet()?.bsvAddress || null : null)
 
   useEffect(() => {
     let cancelled = false
@@ -77,25 +81,26 @@ export function SidebarRight() {
     return () => { cancelled = true }
   }, [isLoggedIn, agent?.id])
 
-  // Fetch on-chain balance from WhatsOnChain once address is known
+  // Fetch on-chain balance from WhatsOnChain — uses eagerly-derived bsvAddress
   useEffect(() => {
-    const addr = walletStats?.bsvAddress
-    if (!addr) return
+    if (!bsvAddress) return
     let cancelled = false
+    setOnchainLoading(true)
+    setOnchainSats(null)
     const fetchBalance = async () => {
       try {
-        const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${addr}/balance`)
+        const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${bsvAddress}/balance`)
         if (!res.ok) return
         const json = await res.json()
-        // WoC returns { confirmed: <sats>, unconfirmed: <sats> }
         if (!cancelled && typeof json.confirmed === 'number') {
           setOnchainSats(json.confirmed + (json.unconfirmed || 0))
         }
-      } catch { /* network error — silently fail, don't break widget */ }
+      } catch { /* silently fail */ }
+      finally { if (!cancelled) setOnchainLoading(false) }
     }
     fetchBalance()
     return () => { cancelled = true }
-  }, [walletStats?.bsvAddress])
+  }, [bsvAddress])
 
   return (
     <aside className="sidebar-right">
@@ -107,8 +112,7 @@ export function SidebarRight() {
             <div style={{ textAlign: 'center', padding: '1.5rem 0', color: 'var(--text-dim)', fontSize: '0.8rem' }}>Loading…</div>
           ) : (() => {
             const stats = walletStats
-            const addr = stats?.bsvAddress
-            const addrDisplay = addr ? `${addr.slice(0, 7)}...${addr.slice(-7)}` : '—'
+            const addrDisplay = bsvAddress ? `${bsvAddress.slice(0, 8)}...${bsvAddress.slice(-8)}` : '—'
             const earned7dBsv = stats ? (stats.earned7dSats / 1e8).toFixed(4) : '0.0000'
             const stakedBsv = stats ? (stats.stakedSats / 1e8).toFixed(4) : '0.0000'
             const x402Count = stats ? stats.x402Count.toLocaleString() : '0'
@@ -123,8 +127,12 @@ export function SidebarRight() {
                       <span className="balance-num">{balanceBsv}</span>
                       <span className="balance-unit">BSV</span>
                     </>
+                  ) : onchainLoading ? (
+                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>
+                      {bsvAddress ? 'fetching balance…' : 'no address found'}
+                    </span>
                   ) : (
-                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>fetching balance…</span>
+                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>0.0000 BSV</span>
                   )}
                 </div>
                 <div className="wallet-stats">
@@ -156,30 +164,67 @@ export function SidebarRight() {
       </div>
 
       {/* Fund Wallet Modal */}
-      {showFundModal && walletStats?.bsvAddress && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 }}>
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '100%', maxWidth: '380px', padding: '1.5rem', fontFamily: "'Outfit', sans-serif" }}>
+      {showFundModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowFundModal(false) }}
+        >
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', width: '100%', maxWidth: '420px', padding: '1.75rem', fontFamily: "'Outfit', sans-serif" }}>
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.1rem', color: 'var(--text)' }}>Fund Wallet</span>
-              <button onClick={() => setShowFundModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.1rem' }}>💰</span>
+                <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.15rem', color: 'var(--text)' }}>Fund Your Agent Wallet</span>
+              </div>
+              <button onClick={() => setShowFundModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.4rem', lineHeight: 1, padding: '0 0.2rem' }}>×</button>
             </div>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1rem', lineHeight: 1.5 }}>
-              Send BSV to this address from any exchange or wallet. Minimum 10,000 sats to post signals.
+
+            {/* Steps */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              {[
+                { n: '1', text: 'Buy BSV on an exchange (e.g. Bitget, OKX, Huobi) or use a peer-to-peer service.' },
+                { n: '2', text: 'Withdraw BSV to your agent address below — this is your on-chain wallet.' },
+                { n: '3', text: 'Minimum 10,000 sats (~£0.04) to post your first signal. The faucet gives you 5,000 free sats to start.' },
+              ].map(({ n, text }) => (
+                <div key={n} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                  <div style={{ minWidth: '22px', height: '22px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: '#000', flexShrink: 0, marginTop: '1px' }}>{n}</div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.55, margin: 0 }}>{text}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Address box */}
+            <div style={{ marginBottom: '0.5rem' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '0.4rem' }}>Your agent address (BSV)</div>
+              {bsvAddress ? (
+                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem', fontFamily: "'DM Mono', monospace", fontSize: '0.73rem', color: 'var(--accent)', wordBreak: 'break-all' }}>
+                  {bsvAddress}
+                </div>
+              ) : (
+                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem', color: 'var(--text-dim)', fontSize: '0.78rem', textAlign: 'center' }}>
+                  Address not found — try refreshing the page
+                </div>
+              )}
+            </div>
+
+            {/* Copy button */}
+            {bsvAddress && (
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(bsvAddress)
+                  setAddrCopied(true)
+                  setTimeout(() => setAddrCopied(false), 2500)
+                }}
+                className="nav-btn btn-primary"
+                style={{ width: '100%', fontSize: '0.82rem', marginTop: '0.75rem' }}
+              >
+                {addrCopied ? '✓ Address Copied!' : 'Copy Address'}
+              </button>
+            )}
+
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.72rem', textAlign: 'center', marginTop: '0.9rem', marginBottom: 0, lineHeight: 1.5 }}>
+              Your private key never leaves your browser. Only you can spend from this address.
             </p>
-            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem', fontFamily: "'DM Mono', monospace", fontSize: '0.72rem', color: 'var(--accent)', wordBreak: 'break-all', marginBottom: '0.75rem' }}>
-              {walletStats.bsvAddress}
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(walletStats.bsvAddress!)
-                setAddrCopied(true)
-                setTimeout(() => setAddrCopied(false), 2000)
-              }}
-              className="nav-btn btn-ghost"
-              style={{ width: '100%', fontSize: '0.8rem' }}
-            >
-              {addrCopied ? '✓ Copied!' : 'Copy Address'}
-            </button>
           </div>
         </div>
       )}
