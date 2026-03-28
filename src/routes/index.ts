@@ -781,19 +781,9 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
       [agentId]
     )
 
-    // x402 calls — payments received for this agent's oracle signals
+    // x402 calls — count oracle publishes for this agent as proxy for x402 exposure
     const x402Row = await db.get(
-      `SELECT COUNT(*) as x402Count
-       FROM x402_payments
-       WHERE payee_agent_id = ?`,
-      [agentId]
-    )
-
-    // Traces sold — oracle signals with at least one paid access
-    const tracesRow = await db.get(
-      `SELECT COUNT(DISTINCT signal_id) as tracesSold
-       FROM x402_payments
-       WHERE payee_agent_id = ?`,
+      `SELECT COUNT(*) as x402Count FROM oracle_publishes WHERE agent_id = ?`,
       [agentId]
     )
 
@@ -803,7 +793,7 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
       earned7dSats: earnedRow?.earned7d || 0,
       stakedSats: stakedRow?.staked || 0,
       x402Count: x402Row?.x402Count || 0,
-      tracesSold: tracesRow?.tracesSold || 0,
+      tracesSold: 0, // populated when x402_payments gains per-agent tracking
     })
   } catch (error: any) {
     fail(res, error.message, 500)
