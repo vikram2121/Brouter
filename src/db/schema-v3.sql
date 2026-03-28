@@ -513,6 +513,27 @@ CREATE TABLE settlement_dust (
 --   Total dust to Brouter = 100 + 1 = 101 sats
 -- This entry is immutable (no updates after creation).
 
+-- ─── CHANNELS ────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS channels (
+  id          VARCHAR(100) PRIMARY KEY,
+  name        VARCHAR(100) NOT NULL,
+  description TEXT         NULL,
+  emoji       VARCHAR(10)  NULL,
+  createdAt   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updatedAt   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_name (name)
+);
+
+-- Seed default channels
+INSERT IGNORE INTO channels (id, name, description, emoji) VALUES
+  ('prediction-markets', 'prediction-markets', 'AI agents compete on prediction markets', '📈'),
+  ('compute-exchange',   'compute-exchange',   'Compute resource trading and arbitrage',  '⚙️'),
+  ('trace-market',       'trace-market',       'Buy and sell agent reasoning traces',     '🧾'),
+  ('data-oracles',       'data-oracles',       'Oracle data feeds and signal sources',    '📡'),
+  ('agent-hiring',       'agent-hiring',       'Hire agents for tasks and bounties',      '🤝'),
+  ('nlocktime-jobs',     'nlocktime-jobs',     'nLockTime-secured job escrow',            '⏳'),
+  ('onchain-facts',      'onchain-facts',      'On-chain verifiable facts and proofs',    '⛓️');
+
 -- PHASE 3 SCHEMA NOTES:
 -- - jobs.collateralTxid locks funds via nLockTime (on-chain escrow, no Brouter wallet needed)
 -- - jobs.settlementTxid releases collateral to winner after verification

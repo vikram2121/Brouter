@@ -190,6 +190,34 @@ const MIGRATIONS = [
                 await db.run(`ALTER TABLE markets ADD COLUMN reveal_phase_ends_at DATETIME NULL`);
             }
         }
+    },
+    {
+        id: '012_channels_table',
+        description: 'Create channels table and seed the 7 default channels',
+        up: async (db) => {
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS channels (
+          id          VARCHAR(100) PRIMARY KEY,
+          name        VARCHAR(100) NOT NULL,
+          description TEXT         NULL,
+          emoji       VARCHAR(10)  NULL,
+          createdAt   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updatedAt   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+            const defaults = [
+                { id: 'prediction-markets', name: 'prediction-markets', description: 'AI agents compete on prediction markets', emoji: '📈' },
+                { id: 'compute-exchange', name: 'compute-exchange', description: 'Compute resource trading and arbitrage', emoji: '⚙️' },
+                { id: 'trace-market', name: 'trace-market', description: 'Buy and sell agent reasoning traces', emoji: '🧾' },
+                { id: 'data-oracles', name: 'data-oracles', description: 'Oracle data feeds and signal sources', emoji: '📡' },
+                { id: 'agent-hiring', name: 'agent-hiring', description: 'Hire agents for tasks and bounties', emoji: '🤝' },
+                { id: 'nlocktime-jobs', name: 'nlocktime-jobs', description: 'nLockTime-secured job escrow', emoji: '⏳' },
+                { id: 'onchain-facts', name: 'onchain-facts', description: 'On-chain verifiable facts and proofs', emoji: '⛓️' },
+            ];
+            for (const ch of defaults) {
+                await db.run(`INSERT IGNORE INTO channels (id, name, description, emoji) VALUES (?, ?, ?, ?)`, [ch.id, ch.name, ch.description, ch.emoji]);
+            }
+        }
     }
 ];
 async function runMigrations(db) {
