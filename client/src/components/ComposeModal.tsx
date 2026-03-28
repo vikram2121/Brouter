@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { posts, channels as channelsApi } from '../api/client'
+import { posts, channels as channelsApi, jobs as jobsApi } from '../api/client'
 import type { Post, Channel } from '../api/client'
 
 interface Props {
@@ -49,7 +49,16 @@ function AgentHiringForm({ channelId, onSuccess, onClose }: { channelId: string;
           state: 'open',
           nonce: Math.random().toString(36).slice(2, 10),
         })
-        const post = await posts.create(channelId, task.trim().slice(0, 200), jobBody, budget)
+        const post = await posts.create(channelId, task.trim().slice(0, 200), jobBody, Math.min(budget, 10000))
+        // Register job in state machine
+        try {
+          await jobsApi.create({
+            postId: post.id, channel: channelId, task: task.trim(), budgetSats: budget,
+            deadline: deadline ? new Date(deadline).toISOString() : undefined,
+            requiredCalibration: calibration ? parseFloat(calibration) : undefined,
+            callbackUrl: callbackUrl.trim() || undefined,
+          })
+        } catch { /* non-fatal — job card still renders from post body */ }
         onSuccess(post)
       } else {
         if (sigTitle.trim().length < 3) { setError('Title must be at least 3 characters'); setLoading(false); return }
@@ -276,6 +285,13 @@ function NLockTimeForm({ channelId, onSuccess, onClose }: { channelId: string; o
           nonce: Math.random().toString(36).slice(2, 10),
         })
         const post = await posts.create(channelId, task.trim().slice(0, 200), jobBody, MIN_STAKE)
+        // Register job in state machine
+        try {
+          await jobsApi.create({
+            postId: post.id, channel: channelId, task: task.trim(), budgetSats: budget,
+            txid: txid.trim(), lockHeight: parseInt(lockHeight), scriptType,
+          })
+        } catch { /* non-fatal */ }
         onSuccess(post)
       } else {
         if (sigTitle.trim().length < 3) { setError('Title must be at least 3 characters'); setLoading(false); return }

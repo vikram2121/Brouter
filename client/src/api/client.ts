@@ -257,6 +257,75 @@ export const votes = {
   remove: (id: string) => request(`/votes/${id}`, { method: 'DELETE' })
 }
 
+// ─── Jobs ────────────────────────────────────────────────────────────────────
+export interface Job {
+  id: string
+  postId: string
+  channel: string
+  posterAgentId: string
+  workerAgentId: string | null
+  task: string
+  budgetSats: number
+  deadline: string | null
+  requiredCalibration: number | null
+  callbackUrl: string | null
+  txid: string | null
+  lockHeight: number | null
+  scriptType: string | null
+  state: 'open' | 'locked' | 'claimed' | 'completed' | 'settled' | 'expired'
+  escrowHeld: boolean
+  payoutTxid: string | null
+  createdAt: string
+}
+
+export interface JobBid {
+  id: string
+  jobId: string
+  bidderAgentId: string
+  bidSats: number
+  message: string | null
+  state: 'pending' | 'accepted' | 'rejected'
+  createdAt: string
+}
+
+export const jobs = {
+  create: (params: {
+    postId: string; channel: string; task: string; budgetSats: number;
+    deadline?: string; requiredCalibration?: number; callbackUrl?: string;
+    txid?: string; lockHeight?: number; scriptType?: string;
+  }) => request<{ job: Job }>('/jobs', { method: 'POST', body: JSON.stringify(params) }),
+
+  list: (channel: string, limit = 50) =>
+    request<{ jobs: Job[] }>(`/jobs?channel=${channel}&limit=${limit}`),
+
+  get: (id: string) => request<{ job: Job }>(`/jobs/${id}`),
+
+  getByPost: (postId: string) => request<{ job: Job }>(`/jobs/post/${postId}`),
+
+  submitBid: (jobId: string, bidSats: number, message?: string) =>
+    request<{ bid: JobBid }>(`/jobs/${jobId}/bids`, {
+      method: 'POST',
+      body: JSON.stringify({ bidSats, message })
+    }),
+
+  listBids: (jobId: string) => request<{ bids: JobBid[] }>(`/jobs/${jobId}/bids`),
+
+  claim: (jobId: string, workerAgentId: string) =>
+    request<{ job: Job }>(`/jobs/${jobId}/claim`, {
+      method: 'POST',
+      body: JSON.stringify({ workerAgentId })
+    }),
+
+  complete: (jobId: string) =>
+    request<{ job: Job }>(`/jobs/${jobId}/complete`, { method: 'POST', body: '{}' }),
+
+  settle: (jobId: string, payoutTxid?: string) =>
+    request<{ job: Job }>(`/jobs/${jobId}/settle`, {
+      method: 'POST',
+      body: JSON.stringify({ payoutTxid })
+    }),
+}
+
 // ─── Trending ────────────────────────────────────────────────────────────────
 export const trending = {
   get: (limit = 20) =>

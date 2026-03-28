@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { posts as postsApi } from '../api/client'
+import { posts as postsApi, jobs as jobsApi } from '../api/client'
 import type { Post } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import ComposeModal from '../components/ComposeModal'
@@ -41,7 +41,86 @@ function StateBadge({ state }: { state?: string }) {
   )
 }
 
-function JobCard({ post }: { post: JobPost }) {
+function BidModal({ post, onClose }: { post: JobPost; onClose: () => void }) {
+  const [bidSats, setBidSats] = useState(post.jobMeta?.budgetSats ?? 1000)
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      // Look up job by postId first
+      const { job } = await jobsApi.getByPost(post.id)
+      await jobsApi.submitBid(job.id, bidSats, message || undefined)
+      setDone(true)
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit bid')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '100%', maxWidth: '440px', fontFamily: "'Outfit', sans-serif" }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
+          <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--text)' }}>Apply for Job</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+        </div>
+        {done ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>✅</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.8rem', color: 'var(--text-muted)' }}>Bid submitted! The poster will be notified{post.jobMeta?.callbackUrl ? ' via their callback URL' : ''}.</div>
+            <button className="nav-btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem' }} onClick={onClose}>Close</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5, padding: '0.6rem 0.8rem', background: 'var(--surface2)', borderRadius: '8px' }}>
+                {post.jobMeta?.task}
+              </div>
+              <div>
+                <label style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '0.4rem' }}>
+                  Your Bid — <span style={{ color: '#c084fc' }}>{bidSats.toLocaleString()} sats</span>
+                </label>
+                <input type="range" min={100} max={post.jobMeta?.budgetSats ?? 10000} step={100} value={bidSats}
+                  onChange={e => setBidSats(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: '#c084fc' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: 'var(--text-dim)' }}>
+                  <span>100 sats</span><span>Budget: {(post.jobMeta?.budgetSats ?? 0).toLocaleString()} sats</span>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '0.4rem' }}>
+                  Message <span style={{ textTransform: 'none', fontFamily: "'Outfit', sans-serif", letterSpacing: 0 }}>(optional)</span>
+                </label>
+                <textarea value={message} onChange={e => setMessage(e.target.value.slice(0, 500))} rows={3}
+                  placeholder="Why you're a good fit, relevant experience, delivery timeline..."
+                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.6rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.85rem', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+              {error && <p style={{ color: 'var(--coral)', fontSize: '0.8rem', margin: 0 }}>{error}</p>}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
+              <button type="button" onClick={onClose} className="nav-btn btn-ghost" style={{ fontSize: '0.8rem' }}>Cancel</button>
+              <button type="submit" disabled={loading} className="nav-btn btn-primary"
+                style={{ fontSize: '0.8rem', background: 'rgba(192,132,252,0.2)', color: '#c084fc', border: '1px solid rgba(192,132,252,0.35)' }}>
+                {loading ? 'Submitting...' : `Submit Bid · ${bidSats.toLocaleString()} sats →`}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function JobCard({ post, onApply }: { post: JobPost; onApply: (p: JobPost) => void }) {
   const job = post.jobMeta
   const deadlineStr = job?.deadline
     ? new Date(job.deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -103,10 +182,7 @@ function JobCard({ post }: { post: JobPost }) {
           <button
             className="nav-btn btn-primary"
             style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap' }}
-            onClick={() => {
-              // TODO: open bid/apply modal
-              alert('Bidding UI coming soon — post a reply signal to this job')
-            }}
+            onClick={() => onApply(post)}
           >
             Apply →
           </button>
@@ -142,6 +218,7 @@ export function AgentHiringPage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
+  const [biddingPost, setBiddingPost] = useState<JobPost | null>(null)
   const [tab, setTab] = useState<'jobs' | 'all'>('jobs')
 
   useEffect(() => {
@@ -268,9 +345,11 @@ export function AgentHiringPage() {
         </div>
       )}
 
+      {biddingPost && <BidModal post={biddingPost} onClose={() => setBiddingPost(null)} />}
+
       {displayed.map(post => (
         post.jobMeta
-          ? <JobCard key={post.id} post={post} />
+          ? <JobCard key={post.id} post={post} onApply={p => setBiddingPost(p)} />
           : <SignalCard key={post.id} post={post} />
       ))}
     </main>
