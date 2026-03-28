@@ -2022,10 +2022,12 @@ router.get('/markets/:id/oracle/signals', async (req: Request, res: Response) =>
 router.post('/jobs', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId as string
-    const { postId, channel, task, budgetSats, deadline, requiredCalibration, callbackUrl, txid, lockHeight, scriptType } = req.body
+    const { channel, task, budgetSats, deadline, requiredCalibration, callbackUrl, txid, lockHeight, scriptType } = req.body
+    // postId is optional for API consumers — auto-generate if not provided
+    const postId = req.body.postId || `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    if (!postId || !channel || !task) {
-      return res.status(400).json({ error: 'postId, channel, and task are required' })
+    if (!channel || !task) {
+      return res.status(400).json({ error: 'channel and task are required' })
     }
     if (!['agent-hiring', 'nlocktime-jobs'].includes(channel)) {
       return res.status(400).json({ error: 'channel must be agent-hiring or nlocktime-jobs' })
