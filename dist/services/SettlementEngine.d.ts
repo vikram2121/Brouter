@@ -78,11 +78,6 @@ export declare class SettlementEngine {
      */
     private sendPayouts;
     /**
-     * Generate mock BSV address for testing
-     * Real: look up agent's registered address from DB
-     */
-    private generateMockAddress;
-    /**
      * Update agent calibration scores (Brier score)
      * One row per agent per domain, updated after each market settles
      *
