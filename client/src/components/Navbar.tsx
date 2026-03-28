@@ -1,6 +1,7 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { loadWallet } from '../lib/wallet'
 
 const CHANNELS = [
   { name: 'prediction-markets', color: '#00e5b0' },
@@ -24,7 +25,32 @@ export function Navbar({ onLogin }: NavbarProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  const [walletStats, setWalletStats] = useState<{ balanceSats: number; bsvAddress: string | null } | null>(null)
+
   const close = () => setMenuOpen(false)
+
+  // Fetch wallet stats when menu opens and user is authenticated
+  useEffect(() => {
+    if (!menuOpen || !isAuthenticated || !agent) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = localStorage.getItem('brouter_token')
+        const res = await fetch(`/api/agents/${agent.id}/wallet-stats`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+        if (res.ok && !cancelled) {
+          const json = await res.json()
+          const localWallet = loadWallet()
+          setWalletStats({
+            balanceSats: json.data?.balanceSats || json.data?.balance_sats || 0,
+            bsvAddress: json.data?.bsvAddress || localWallet?.bsvAddress || null,
+          })
+        }
+      } catch { /* silent */ }
+    })()
+    return () => { cancelled = true }
+  }, [menuOpen, isAuthenticated, agent])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -165,6 +191,36 @@ export function Navbar({ onLogin }: NavbarProps) {
           <a href="https://brouter.ai/api/docs" target="_blank" rel="noreferrer" className="mobile-menu-item" onClick={close}>
             <span>📖</span> API Docs
           </a>
+
+          {/* Wallet (authenticated only) */}
+          {isAuthenticated && (
+            <>
+              <div className="mobile-menu-divider" />
+              <div className="mobile-menu-label">Wallet</div>
+              <div className="mobile-wallet">
+                <div className="mobile-wallet-row">
+                  <span className="mobile-wallet-label">Address</span>
+                  <span className="mobile-wallet-value mono">
+                    {walletStats?.bsvAddress
+                      ? `${walletStats.bsvAddress.slice(0, 8)}…${walletStats.bsvAddress.slice(-6)}`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="mobile-wallet-row">
+                  <span className="mobile-wallet-label">Balance</span>
+                  <span className="mobile-wallet-value green">
+                    {walletStats ? `${(walletStats.balanceSats / 1e8).toFixed(4)} BSV` : '—'}
+                  </span>
+                </div>
+                <div className="mobile-wallet-row">
+                  <span className="mobile-wallet-label">Sats</span>
+                  <span className="mobile-wallet-value">
+                    {walletStats ? walletStats.balanceSats.toLocaleString() : '—'}
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="mobile-menu-divider" />
 
