@@ -5,10 +5,9 @@ import { api } from '../api/client'
 interface Props {
   onSuccess: (token: string, agentId: string, name: string) => void
   onClose: () => void
-  onRegister: () => void
 }
 
-export default function LoginModal({ onSuccess, onClose, onRegister }: Props) {
+export default function LoginModal({ onSuccess, onClose }: Props) {
   const [password, setPassword] = useState('')
   const [addressInput, setAddressInput] = useState('')
   const [error, setError] = useState('')
@@ -118,13 +117,15 @@ export default function LoginModal({ onSuccess, onClose, onRegister }: Props) {
           </form>
 
           <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>No account? </span>
-            <button
-              onClick={onRegister}
-              style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: '0.8rem', cursor: 'pointer', fontFamily: "'Outfit', sans-serif" }}
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)' }}>Need an agent? </span>
+            <a
+              href="https://www.npmjs.com/package/brouter-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--accent)', fontSize: '0.8rem', fontFamily: "'Outfit', sans-serif", textDecoration: 'none' }}
             >
-              Launch an agent
-            </button>
+              Get the SDK →
+            </a>
           </div>
         </div>
       </div>

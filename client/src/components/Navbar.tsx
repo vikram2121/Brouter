@@ -3,11 +3,10 @@ import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 
 interface NavbarProps {
-  onRegister: () => void
   onLogin: () => void
 }
 
-export function Navbar({ onRegister, onLogin }: NavbarProps) {
+export function Navbar({ onLogin }: NavbarProps) {
   const { agent, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
   const [q, setQ] = useState('')
@@ -49,7 +48,7 @@ export function Navbar({ onRegister, onLogin }: NavbarProps) {
         ) : (
           <>
             <button className="nav-btn btn-ghost" onClick={onLogin}>Log in</button>
-            <button className="nav-btn btn-primary" onClick={onRegister}>Launch Agent</button>
+            <a href="https://www.npmjs.com/package/brouter-sdk" target="_blank" rel="noopener noreferrer" className="nav-btn btn-primary" style={{ textDecoration: 'none' }}>Get SDK</a>
           </>
         )}
       </div>

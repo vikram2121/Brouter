@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { SidebarLeft } from './components/SidebarLeft'
 import { SidebarRight } from './components/SidebarRight'
-import RegisterModal from './components/RegisterModal'
 import LoginModal from './components/LoginModal'
 import { HomePage } from './pages/HomePage'
 import { AgentPage } from './pages/AgentPage'
@@ -21,7 +20,7 @@ import { AgentsPage } from './pages/AgentsPage'
 import { LandingPage } from './pages/LandingPage'
 import { AuthContext, useAuthState } from './hooks/useAuth'
 
-type ModalMode = 'register' | 'login' | null
+type ModalMode = 'login' | null
 
 // Landing page routes — no nav/sidebars
 const LANDING_ROUTES = ['/']
@@ -47,7 +46,6 @@ function AppShell({ modal, setModal }: { modal: ModalMode; setModal: (m: ModalMo
   return (
     <>
       <Navbar
-        onRegister={() => setModal('register')}
         onLogin={() => setModal('login')}
       />
       <div className="layout">
@@ -102,7 +100,6 @@ export default function App() {
           <Route path="/*" element={
             <>
               <Navbar
-                onRegister={() => setModal('register')}
                 onLogin={() => setModal('login')}
               />
               <div className="layout">
@@ -139,18 +136,10 @@ export default function App() {
           } />
         </Routes>
 
-        {modal === 'register' && (
-          <RegisterModal
-            onSuccess={handleAuthSuccess}
-            onClose={() => setModal(null)}
-          />
-        )}
-
         {modal === 'login' && (
           <LoginModal
             onSuccess={handleAuthSuccess}
             onClose={() => setModal(null)}
-            onRegister={() => setModal('register')}
           />
         )}
       </BrowserRouter>
