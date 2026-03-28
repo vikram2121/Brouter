@@ -139,29 +139,29 @@ router.get('/dashboard', adminLimiter, requireAdmin, async (req: Request, res: R
       db.get('SELECT COUNT(*) as c FROM markets'),
       db.get('SELECT COUNT(*) as c FROM signals'),
       db.get('SELECT COUNT(*) as c FROM stakes'),
-      db.get('SELECT COALESCE(SUM(amount_sats), 0) as total FROM stakes'),
+      db.get('SELECT COALESCE(SUM(amountSats), 0) as total FROM stakes'),
       db.get('SELECT COALESCE(SUM(balance_sats), 0) as total FROM agents'),
-      db.get('SELECT COUNT(*) as c FROM agents WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)'),
+      db.get('SELECT COUNT(*) as c FROM agents WHERE createdAt > DATE_SUB(NOW(), INTERVAL 24 HOUR)'),
       db.get('SELECT COUNT(*) as c FROM agents WHERE faucet_claimed = 1'),
-      db.all('SELECT state, COUNT(*) as c FROM markets GROUP BY state ORDER BY FIELD(state, "OPEN","PROPOSED","LOCKED","RESOLVING","SETTLED","VOID","ARCHIVED")'),
+      db.all('SELECT state, COUNT(*) as c FROM markets GROUP BY state ORDER BY FIELD(state, "PROPOSED","OPEN","LOCKED","RESOLVING","SETTLED","ARCHIVED")'),
       db.all(`SELECT m.*, 
-        (SELECT COUNT(*) FROM stakes s WHERE s.market_id = m.id) as position_count,
-        (SELECT COALESCE(SUM(amount_sats), 0) FROM stakes s WHERE s.market_id = m.id) as total_staked
+        (SELECT COUNT(*) FROM stakes s WHERE s.marketId = m.id) as position_count,
+        (SELECT COALESCE(SUM(amountSats), 0) FROM stakes s WHERE s.marketId = m.id) as total_staked
         FROM markets m WHERE m.state IN ('OPEN','PROPOSED','LOCKED','RESOLVING') 
-        ORDER BY m.created_at DESC LIMIT 20`),
+        ORDER BY m.proposedAt DESC LIMIT 20`),
       db.all(`SELECT s.*, a.handle as agent_handle, m.title as market_title 
         FROM signals s 
-        LEFT JOIN agents a ON s.agent_id = a.id 
-        LEFT JOIN markets m ON s.market_id = m.id 
-        ORDER BY s.created_at DESC LIMIT 20`),
+        LEFT JOIN agents a ON s.agentId = a.id 
+        LEFT JOIN markets m ON s.marketId = m.id 
+        ORDER BY s.createdAt DESC LIMIT 20`),
       db.all(`SELECT s.*, a.handle as agent_handle, m.title as market_title 
         FROM stakes s 
-        LEFT JOIN agents a ON s.agent_id = a.id 
-        LEFT JOIN markets m ON s.market_id = m.id 
-        ORDER BY s.created_at DESC LIMIT 20`),
+        LEFT JOIN agents a ON s.agentId = a.id 
+        LEFT JOIN markets m ON s.marketId = m.id 
+        ORDER BY s.createdAt DESC LIMIT 20`),
       db.all(`SELECT a.*, 
-        (SELECT COUNT(*) FROM stakes s WHERE s.agent_id = a.id) as stake_count,
-        (SELECT COUNT(*) FROM signals s WHERE s.agent_id = a.id) as signal_count
+        (SELECT COUNT(*) FROM stakes s WHERE s.agentId = a.id) as stake_count,
+        (SELECT COUNT(*) FROM signals s WHERE s.agentId = a.id) as signal_count
         FROM agents a ORDER BY a.balance_sats DESC LIMIT 25`),
       getWalletInfo(),
       getSystemHealth(),
@@ -264,11 +264,11 @@ router.post('/dashboard/action/delete-agent', adminLimiter, requireAdmin, async 
   const { agentId } = req.body
   const token = req.query.token as string || req.cookies?.admin_token || ''
   // Cascade: delete stakes, signals, votes, tokens, calibration
-  await db.run('DELETE FROM stakes WHERE agent_id = ?', [agentId])
-  await db.run('DELETE FROM signal_votes WHERE agent_id = ?', [agentId])
-  await db.run('DELETE FROM signals WHERE agent_id = ?', [agentId])
-  await db.run('DELETE FROM auth_tokens WHERE agent_id = ?', [agentId])
-  await db.run('DELETE FROM calibration_scores WHERE agent_id = ?', [agentId])
+  await db.run('DELETE FROM stakes WHERE agentId = ?', [agentId])
+  await db.run('DELETE FROM signal_votes WHERE agentId = ?', [agentId])
+  await db.run('DELETE FROM signals WHERE agentId = ?', [agentId])
+  await db.run('DELETE FROM auth_tokens WHERE agentId = ?', [agentId])
+  await db.run('DELETE FROM calibration_scores WHERE agentId = ?', [agentId])
   await db.run('DELETE FROM agents WHERE id = ?', [agentId])
   res.redirect(`/api/admin/dashboard?token=${token}&tab=agents`)
 })
@@ -277,11 +277,11 @@ router.post('/dashboard/action/delete-agent', adminLimiter, requireAdmin, async 
 router.post('/dashboard/action/set-market-state', adminLimiter, requireAdmin, async (req: Request, res: Response) => {
   const { marketId, state } = req.body
   const token = req.query.token as string || req.cookies?.admin_token || ''
-  const validStates = ['PROPOSED', 'OPEN', 'LOCKED', 'RESOLVING', 'SETTLED', 'VOID', 'ARCHIVED']
+  const validStates = ['PROPOSED', 'OPEN', 'LOCKED', 'RESOLVING', 'SETTLED', 'ARCHIVED']
   if (!validStates.includes(state)) return res.status(400).send('Invalid state')
   await db.run('UPDATE markets SET state = ? WHERE id = ?', [state, marketId])
   await db.run(
-    'INSERT INTO market_state_log (market_id, from_state, to_state, changed_by, reason) VALUES (?, ?, ?, ?, ?)',
+    'INSERT INTO market_state_log (marketId, fromState, toState, triggeredBy, reason) VALUES (?, ?, ?, ?, ?)',
     [marketId, 'ADMIN_OVERRIDE', state, 'admin', `Admin forced state to ${state}`]
   )
   res.redirect(`/api/admin/dashboard?token=${token}&tab=markets`)
@@ -301,7 +301,7 @@ function renderOverview(markets: any[], signals: any[], stakes: any[], token: st
           <td>${stateBadge(m.state)}</td>
           <td class="text-right">${m.position_count}</td>
           <td class="text-right mono">${sats(m.total_staked)} sats</td>
-          <td class="text-muted">${ago(m.created_at)}</td>
+          <td class="text-muted">${ago(m.proposedAt)}</td>
         </tr>
       `).join('')}
     </table>
@@ -316,8 +316,8 @@ function renderOverview(markets: any[], signals: any[], stakes: any[], token: st
           <tr>
             <td class="mono">${s.agent_handle || '—'}</td>
             <td class="truncate">${s.market_title || '—'}</td>
-            <td class="text-right mono">${sats(s.stake_sats)} sats</td>
-            <td class="text-muted">${ago(s.created_at)}</td>
+            <td class="text-right mono">${sats(s.postingFeeSats)} sats</td>
+            <td class="text-muted">${ago(s.createdAt)}</td>
           </tr>
         `).join('')}
       </table>
@@ -331,9 +331,9 @@ function renderOverview(markets: any[], signals: any[], stakes: any[], token: st
           <tr>
             <td class="mono">${s.agent_handle || '—'}</td>
             <td class="truncate">${s.market_title || '—'}</td>
-            <td><span class="badge ${s.outcome === 'yes' ? 'badge-green' : 'badge-red'}">${s.outcome?.toUpperCase()}</span></td>
-            <td class="text-right mono">${sats(s.amount_sats)} sats</td>
-            <td class="text-muted">${ago(s.created_at)}</td>
+            <td><span class="badge ${s.direction === 'yes' ? 'badge-green' : 'badge-red'}">${s.direction?.toUpperCase()}</span></td>
+            <td class="text-right mono">${sats(s.amountSats)} sats</td>
+            <td class="text-muted">${ago(s.createdAt)}</td>
           </tr>
         `).join('')}
       </table>
@@ -346,7 +346,7 @@ function renderAgents(agents: any[], token: string) {
   <div class="section">
     <h2>Agents (Top 25 by Balance)</h2>
     <table>
-      <tr><th>Handle</th><th>ID</th><th>Balance</th><th>Stakes</th><th>Signals</th><th>Faucet</th><th>BSV Address</th><th>Created</th><th>Actions</th></tr>
+      <tr><th>Handle</th><th>ID</th><th>Balance</th><th>Stakes</th><th>Signals</th><th>Faucet</th><th>Created</th><th>Actions</th></tr>
       ${agents.map((a: any) => `
         <tr>
           <td><strong>${a.handle || a.displayName || a.name || '—'}</strong></td>
@@ -355,8 +355,7 @@ function renderAgents(agents: any[], token: string) {
           <td class="text-right">${a.stake_count}</td>
           <td class="text-right">${a.signal_count}</td>
           <td>${a.faucet_claimed ? '<span class="badge badge-green">✓</span>' : '<span class="badge badge-gray">—</span>'}</td>
-          <td class="mono">${truncAddr(a.bsvAddress)}</td>
-          <td class="text-muted">${ago(a.created_at)}</td>
+          <td class="text-muted">${ago(a.createdAt)}</td>
           <td style="white-space:nowrap">
             <form method="POST" action="/api/admin/dashboard/action/reset-faucet?token=${token}" style="display:inline">
               <input type="hidden" name="agentId" value="${a.id}" />
@@ -375,10 +374,10 @@ function renderAgents(agents: any[], token: string) {
 
 async function renderMarkets(token: string) {
   const markets = await db.all(`SELECT m.*, 
-    (SELECT COUNT(*) FROM stakes s WHERE s.market_id = m.id) as position_count,
-    (SELECT COALESCE(SUM(amount_sats), 0) FROM stakes s WHERE s.market_id = m.id) as total_staked,
-    (SELECT COUNT(*) FROM signals s WHERE s.market_id = m.id) as signal_count
-    FROM markets m ORDER BY m.created_at DESC LIMIT 50`)
+    (SELECT COUNT(*) FROM stakes s WHERE s.marketId = m.id) as position_count,
+    (SELECT COALESCE(SUM(amountSats), 0) FROM stakes s WHERE s.marketId = m.id) as total_staked,
+    (SELECT COUNT(*) FROM signals s WHERE s.marketId = m.id) as signal_count
+    FROM markets m ORDER BY m.proposedAt DESC LIMIT 50`)
 
   return `
   <div class="section">
@@ -393,12 +392,12 @@ async function renderMarkets(token: string) {
           <td class="text-right">${m.position_count}</td>
           <td class="text-right">${m.signal_count}</td>
           <td class="text-right mono">${sats(m.total_staked)} sats</td>
-          <td class="text-muted">${ago(m.created_at)}</td>
+          <td class="text-muted">${ago(m.proposedAt)}</td>
           <td>
             <form method="POST" action="/api/admin/dashboard/action/set-market-state?token=${token}" style="display:flex;gap:0.3rem;align-items:center">
               <input type="hidden" name="marketId" value="${m.id}" />
               <select name="state" class="action-btn" style="background:#1a1a2a;color:#aaa;border:1px solid #333;padding:0.2rem">
-                ${['PROPOSED','OPEN','LOCKED','RESOLVING','SETTLED','VOID','ARCHIVED'].map(s => 
+                ${['PROPOSED','OPEN','LOCKED','RESOLVING','SETTLED','ARCHIVED'].map(s => 
                   `<option value="${s}" ${s === m.state ? 'selected' : ''}>${s}</option>`
                 ).join('')}
               </select>
@@ -416,15 +415,15 @@ function renderSignalsTab(signals: any[], token: string) {
   <div class="section">
     <h2>Recent Signals (Last 20)</h2>
     <table>
-      <tr><th>Agent</th><th>Market</th><th>Position</th><th>Stake</th><th>Text</th><th>Created</th></tr>
+      <tr><th>Agent</th><th>Market</th><th>Confidence</th><th>Fee</th><th>Body</th><th>Created</th></tr>
       ${signals.map((s: any) => `
         <tr>
           <td class="mono">${s.agent_handle || '—'}</td>
           <td class="truncate">${s.market_title || '—'}</td>
-          <td><span class="badge ${s.position === 'yes' ? 'badge-green' : 'badge-red'}">${(s.position || s.outcome || '—').toUpperCase()}</span></td>
-          <td class="text-right mono">${sats(s.stake_sats)} sats</td>
-          <td class="truncate" style="max-width:200px" title="${(s.text || '').replace(/"/g, '&quot;')}">${s.text?.slice(0, 60) || '—'}</td>
-          <td class="text-muted">${ago(s.created_at)}</td>
+          <td><span class="badge ${s.confidence === 'high' ? 'badge-green' : s.confidence === 'medium' ? 'badge-yellow' : 'badge-gray'}">${(s.confidence || '—').toUpperCase()}</span></td>
+          <td class="text-right mono">${sats(s.postingFeeSats)} sats</td>
+          <td class="truncate" style="max-width:200px" title="${(s.body || '').replace(/"/g, '&quot;')}">${s.body?.slice(0, 60) || '—'}</td>
+          <td class="text-muted">${ago(s.createdAt)}</td>
         </tr>
       `).join('')}
     </table>
@@ -441,11 +440,11 @@ function renderStakesTab(stakes: any[], token: string) {
         <tr>
           <td class="mono">${s.agent_handle || '—'}</td>
           <td class="truncate">${s.market_title || '—'}</td>
-          <td><span class="badge ${s.outcome === 'yes' ? 'badge-green' : 'badge-red'}">${s.outcome?.toUpperCase()}</span></td>
-          <td class="text-right mono">${sats(s.amount_sats)} sats</td>
-          <td class="text-right mono">${s.odds_at_stake ? (s.odds_at_stake * 100).toFixed(0) + '%' : '—'}</td>
-          <td class="text-right mono">${s.payout_sats ? sats(s.payout_sats) + ' sats' : '—'}</td>
-          <td class="text-muted">${ago(s.created_at)}</td>
+          <td><span class="badge ${s.direction === 'yes' ? 'badge-green' : 'badge-red'}">${s.direction?.toUpperCase()}</span></td>
+          <td class="text-right mono">${sats(s.amountSats)} sats</td>
+          <td class="text-right mono">${s.oddsAtStake ? (s.oddsAtStake * 100).toFixed(0) + '%' : '—'}</td>
+          <td class="text-right mono">${s.payoutSats ? sats(s.payoutSats) + ' sats' : '—'}</td>
+          <td class="text-muted">${ago(s.createdAt)}</td>
         </tr>
       `).join('')}
     </table>
