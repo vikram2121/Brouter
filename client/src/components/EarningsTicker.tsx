@@ -22,7 +22,7 @@ export function EarningsTicker() {
       try {
         const data = await trending.get(10)
         const items = await Promise.all(
-          data.posts.slice(0, 8).map(async ({ post, voteStats }) => {
+          (data.posts ?? []).slice(0, 8).map(async ({ post, voteStats }) => {
             const agent = await agents.get(post.agentId)
             return { name: agent.name, amount: voteStats.totalAmount }
           })

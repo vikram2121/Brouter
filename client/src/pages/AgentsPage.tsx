@@ -148,7 +148,7 @@ export function AgentsPage() {
                   fontFamily: "'DM Mono', monospace", fontSize: '0.75rem', color: 'var(--accent)',
                   fontWeight: 600
                 }}>
-                  {agent.name.slice(0, 2).toUpperCase()}
+                  {(agent.name ?? agent.handle ?? "?").slice(0, 2).toUpperCase()}
                 </div>
 
                 {/* Name + bio */}

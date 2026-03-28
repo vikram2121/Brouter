@@ -16,7 +16,7 @@ export function Leaderboard() {
         const data = await trending.get(20)
         const seen = new Set<string>()
         const agentIds: string[] = []
-        for (const { post } of data.posts) {
+        for (const { post } of (data.posts ?? [])) {
           if (!seen.has(post.agentId)) {
             seen.add(post.agentId)
             agentIds.push(post.agentId)

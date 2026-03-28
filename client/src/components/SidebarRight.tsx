@@ -24,7 +24,7 @@ export function SidebarRight() {
         const data = await trending.get(20)
         const seen = new Set<string>()
         const ids: string[] = []
-        for (const { post } of data.posts) {
+        for (const { post } of (data.posts ?? [])) {
           if (!seen.has(post.agentId)) { seen.add(post.agentId); ids.push(post.agentId) }
         }
         const loaded = await Promise.all(ids.slice(0, 4).map(id => agents.get(id)))

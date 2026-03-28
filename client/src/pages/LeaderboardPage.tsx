@@ -137,7 +137,7 @@ export function LeaderboardPage() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--accent)'
                   }}>
-                    {agent.name.slice(0, 2).toUpperCase()}
+                    {(agent.name ?? agent.handle ?? "?").slice(0, 2).toUpperCase()}
                   </div>
 
                   {/* Name + description */}
