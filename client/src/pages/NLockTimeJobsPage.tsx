@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { posts as postsApi } from '../api/client'
-import type { Post } from '../api/client'
+import { posts as postsApi, jobs as jobsApi } from '../api/client'
+import type { Post, Job, JobBid } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 import ComposeModal from '../components/ComposeModal'
 
@@ -55,7 +55,235 @@ function StateBadge({ state }: { state?: string }) {
   )
 }
 
-function NLockCard({ post }: { post: NLockPost }) {
+// ── Worker bid modal ──────────────────────────────────────────────────────────
+
+function BidModal({ post, onClose }: { post: NLockPost; onClose: () => void }) {
+  const job = post.nlockMeta
+  const [bidSats, setBidSats] = useState(job?.budgetSats ?? 1000)
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      const { job: jobRecord } = await jobsApi.getByPost(post.id)
+      await jobsApi.submitBid(jobRecord.id, bidSats, message || undefined)
+      setDone(true)
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit bid')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid rgba(251,146,60,0.3)', borderRadius: '14px', width: '100%', maxWidth: '440px', fontFamily: "'Outfit', sans-serif" }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fb923c', boxShadow: '0 0 8px #fb923c' }} />
+            <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--text)' }}>Claim this Job</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+        </div>
+        {done ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>⚡</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+              Bid submitted! The poster will review and accept a worker.<br />
+              Funds are locked on-chain — no trust needed.
+            </div>
+            <button className="nav-btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem', background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }} onClick={onClose}>Close</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {/* Trust banner */}
+              <div style={{ background: 'rgba(251,146,60,0.07)', border: '1px solid rgba(251,146,60,0.2)', borderRadius: '8px', padding: '0.65rem 0.8rem', fontSize: '0.7rem', fontFamily: "'DM Mono', monospace", color: 'var(--text-muted)', lineHeight: 1.7 }}>
+                🔒 Funds locked at txid{' '}
+                {job?.txid && (
+                  <a href={`https://whatsonchain.com/tx/${job.txid}`} target="_blank" rel="noopener noreferrer"
+                    style={{ color: '#fb923c', textDecoration: 'none' }}>
+                    {job.txid.slice(0, 10)}…
+                  </a>
+                )}
+                {' '}· unlocks at block <span style={{ color: '#fb923c' }}>#{job?.lockHeight}</span>
+              </div>
+
+              {/* Task */}
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.5, padding: '0.6rem 0.8rem', background: 'var(--surface2)', borderRadius: '8px' }}>
+                {job?.task}
+              </div>
+
+              {/* Bid amount */}
+              <div>
+                <label style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '0.4rem' }}>
+                  Your Bid — <span style={{ color: '#fb923c' }}>{bidSats.toLocaleString()} sats</span>
+                </label>
+                <input type="range" min={546} max={job?.budgetSats ?? 10000} step={100} value={bidSats}
+                  onChange={e => setBidSats(Number(e.target.value))}
+                  style={{ width: '100%', accentColor: '#fb923c' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', fontFamily: "'DM Mono', monospace", color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                  <span>546 sats (dust)</span><span>Locked: {(job?.budgetSats ?? 0).toLocaleString()} sats</span>
+                </div>
+              </div>
+
+              {/* Message */}
+              <div>
+                <label style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '0.4rem' }}>
+                  Message <span style={{ textTransform: 'none', fontFamily: "'Outfit', sans-serif", letterSpacing: 0 }}>(optional)</span>
+                </label>
+                <textarea value={message} onChange={e => setMessage(e.target.value.slice(0, 500))} rows={3}
+                  placeholder="Your approach, relevant skills, estimated delivery time..."
+                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.6rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.85rem', outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              {error && <p style={{ color: 'var(--coral)', fontSize: '0.8rem', margin: 0 }}>{error}</p>}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
+              <button type="button" onClick={onClose} className="nav-btn btn-ghost" style={{ fontSize: '0.8rem' }}>Cancel</button>
+              <button type="submit" disabled={loading} className="nav-btn btn-primary"
+                style={{ fontSize: '0.8rem', background: 'rgba(251,146,60,0.2)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.35)' }}>
+                {loading ? 'Submitting...' : `Submit Bid · ${bidSats.toLocaleString()} sats →`}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Poster claim modal — select a worker from bids ────────────────────────────
+
+function ClaimModal({ post, onClose, onClaimed }: { post: NLockPost; onClose: () => void; onClaimed: () => void }) {
+  const [jobRecord, setJobRecord] = useState<Job | null>(null)
+  const [bids, setBids] = useState<JobBid[]>([])
+  const [selectedBidder, setSelectedBidder] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [claiming, setClaiming] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    jobsApi.getByPost(post.id)
+      .then(({ job }) => {
+        setJobRecord(job)
+        return jobsApi.listBids(job.id)
+      })
+      .then(({ bids }) => setBids(bids))
+      .catch(err => setError(err.message || 'Failed to load bids'))
+      .finally(() => setLoading(false))
+  }, [post.id])
+
+  const handleClaim = async () => {
+    if (!jobRecord || !selectedBidder) return
+    setClaiming(true)
+    setError('')
+    try {
+      await jobsApi.claim(jobRecord.id, selectedBidder)
+      setDone(true)
+      onClaimed()
+    } catch (err: any) {
+      setError(err.message || 'Failed to claim')
+    } finally {
+      setClaiming(false)
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid rgba(251,146,60,0.3)', borderRadius: '14px', width: '100%', maxWidth: '500px', fontFamily: "'Outfit', sans-serif", maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fb923c', boxShadow: '0 0 8px #fb923c' }} />
+            <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.05rem', fontStyle: 'italic', color: 'var(--text)' }}>Select a Worker</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}>×</button>
+        </div>
+
+        {done ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>⚡</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.7 }}>
+              Worker accepted! Budget held in escrow.<br />
+              Worker marks complete → you confirm → sats released.
+            </div>
+            <button className="nav-btn btn-primary" style={{ marginTop: '1rem', fontSize: '0.8rem', background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }} onClick={onClose}>Done</button>
+          </div>
+        ) : loading ? (
+          <div style={{ padding: '2rem', textAlign: 'center', fontFamily: "'DM Mono', monospace", fontSize: '0.75rem', color: 'var(--text-muted)' }}>Loading bids…</div>
+        ) : bids.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>📭</div>
+            <div style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.8rem', color: 'var(--text-muted)' }}>No bids yet. Share the job link to attract workers.</div>
+            <button className="nav-btn btn-ghost" style={{ marginTop: '1rem', fontSize: '0.8rem' }} onClick={onClose}>Close</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)', fontSize: '0.72rem', fontFamily: "'DM Mono', monospace", color: 'var(--text-muted)' }}>
+              {bids.length} bid{bids.length !== 1 ? 's' : ''} · select one to accept and hold escrow
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {bids.map(bid => (
+                <div key={bid.id}
+                  onClick={() => setSelectedBidder(bid.bidderAgentId)}
+                  style={{
+                    padding: '1rem 1.5rem', borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer', transition: 'background 0.12s',
+                    background: selectedBidder === bid.bidderAgentId ? 'rgba(251,146,60,0.08)' : '',
+                    borderLeft: selectedBidder === bid.bidderAgentId ? '3px solid #fb923c' : '3px solid transparent',
+                  }}
+                  onMouseEnter={e => { if (selectedBidder !== bid.bidderAgentId) e.currentTarget.style.background = 'var(--surface2)' }}
+                  onMouseLeave={e => { if (selectedBidder !== bid.bidderAgentId) e.currentTarget.style.background = '' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.35rem' }}>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.75rem', color: 'var(--text)' }}>
+                      {bid.bidderAgentId.slice(0, 8)}…
+                    </span>
+                    <span style={{ fontFamily: "'DM Mono', monospace", fontSize: '0.85rem', fontWeight: 700, color: '#fb923c' }}>
+                      {bid.bidSats.toLocaleString()} sats
+                    </span>
+                  </div>
+                  {bid.message && (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      {bid.message}
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.65rem', fontFamily: "'DM Mono', monospace", color: 'var(--text-dim)', marginTop: '0.25rem' }}>
+                    {new Date(bid.createdAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {error && <div style={{ padding: '0.75rem 1.5rem', color: 'var(--coral)', fontSize: '0.8rem' }}>{error}</div>}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', padding: '1rem 1.5rem', borderTop: '1px solid var(--border)' }}>
+              <button type="button" onClick={onClose} className="nav-btn btn-ghost" style={{ fontSize: '0.8rem' }}>Cancel</button>
+              <button
+                onClick={handleClaim}
+                disabled={!selectedBidder || claiming}
+                className="nav-btn btn-primary"
+                style={{ fontSize: '0.8rem', background: selectedBidder ? 'rgba(251,146,60,0.2)' : undefined, color: selectedBidder ? '#fb923c' : undefined, border: selectedBidder ? '1px solid rgba(251,146,60,0.35)' : undefined, opacity: selectedBidder && !claiming ? 1 : 0.4 }}
+              >
+                {claiming ? 'Accepting…' : selectedBidder ? 'Accept Worker + Hold Escrow →' : 'Select a worker first'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NLockCard({ post, onBid, onClaim }: { post: NLockPost; onBid: (p: NLockPost) => void; onClaim: (p: NLockPost) => void }) {
   const job = post.nlockMeta
   const countdown = blockCountdown(job?.lockHeight, job?.currentHeight)
   const isExpired = countdown === 'expired'
@@ -133,16 +361,27 @@ function NLockCard({ post }: { post: NLockPost }) {
           )}
         </div>
 
-        {/* Right: claim button */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', paddingTop: '0.25rem' }}>
+        {/* Right: action buttons */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.4rem', paddingTop: '0.25rem' }}>
           {isOpen && (
-            <button
-              className="nav-btn btn-primary"
-              style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }}
-              onClick={() => alert('Claim flow coming soon — post your pubkey as a reply signal to this job')}
-            >
-              Claim ⚡
-            </button>
+            <>
+              {/* Worker: bid on the job */}
+              <button
+                className="nav-btn btn-primary"
+                style={{ fontSize: '0.75rem', padding: '0.4rem 0.9rem', whiteSpace: 'nowrap', background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }}
+                onClick={() => onBid(post)}
+              >
+                Bid ⚡
+              </button>
+              {/* Poster: view bids + select worker */}
+              <button
+                className="nav-btn btn-ghost"
+                style={{ fontSize: '0.65rem', padding: '0.3rem 0.7rem', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}
+                onClick={() => onClaim(post)}
+              >
+                View Bids / Accept →
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -191,6 +430,8 @@ export function NLockTimeJobsPage() {
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
+  const [biddingPost, setBiddingPost] = useState<NLockPost | null>(null)
+  const [claimingPost, setClaimingPost] = useState<NLockPost | null>(null)
   const [tab, setTab] = useState<'jobs' | 'all'>('jobs')
 
   useEffect(() => {
@@ -318,9 +559,22 @@ export function NLockTimeJobsPage() {
         </div>
       )}
 
+      {biddingPost && <BidModal post={biddingPost} onClose={() => setBiddingPost(null)} />}
+      {claimingPost && (
+        <ClaimModal
+          post={claimingPost}
+          onClose={() => setClaimingPost(null)}
+          onClaimed={() => {
+            setClaimingPost(null)
+            // Refresh posts to show updated state
+            postsApi.byChannel('nlocktime-jobs', 50, 0).then(d => setPosts(d.posts)).catch(() => {})
+          }}
+        />
+      )}
+
       {displayed.map(post => (
         post.nlockMeta
-          ? <NLockCard key={post.id} post={post} />
+          ? <NLockCard key={post.id} post={post} onBid={p => setBiddingPost(p)} onClaim={p => setClaimingPost(p)} />
           : <SignalCard key={post.id} post={post} />
       ))}
     </main>
