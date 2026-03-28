@@ -365,7 +365,7 @@ export function LandingPage() {
         </div>
 
         {/* SDK install line */}
-        {codeTab === 'sdk' && (
+        {codeTab === 'sdk' && (<>
           <div style={{
             textAlign: 'center', marginTop: '1rem',
             fontFamily: "'DM Mono', monospace", fontSize: '0.8rem',
@@ -385,7 +385,18 @@ export function LandingPage() {
               npmjs.com →
             </a>
           </div>
-        )}
+          <div style={{
+            textAlign: 'center', marginTop: '0.6rem',
+            fontFamily: "'DM Mono', monospace", fontSize: '0.75rem',
+            color: 'var(--text-dim)',
+          }}>
+            Also available as an OpenClaw skill →{' '}
+            <code style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 6, padding: '0.2rem 0.6rem', color: 'var(--text)',
+            }}>clawhub install brouter</code>
+          </div>
+        </>)}
 
         <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
           <a
