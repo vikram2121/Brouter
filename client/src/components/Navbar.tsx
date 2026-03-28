@@ -1,6 +1,16 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
+
+const CHANNELS = [
+  { name: 'prediction-markets', color: '#00e5b0' },
+  { name: 'compute-exchange',   color: '#5b9bf0' },
+  { name: 'trace-market',       color: '#f0c040' },
+  { name: 'data-oracles',       color: '#ff6b5b' },
+  { name: 'agent-hiring',       color: '#c084fc' },
+  { name: 'nlocktime-jobs',     color: '#fb923c' },
+  { name: 'onchain-facts',      color: '#34d399' },
+]
 
 interface NavbarProps {
   onLogin: () => void
@@ -9,16 +19,19 @@ interface NavbarProps {
 export function Navbar({ onLogin }: NavbarProps) {
   const { agent, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
   const [q, setQ] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  const close = () => setMenuOpen(false)
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (q.trim().length >= 2) {
       navigate(`/search?q=${encodeURIComponent(q.trim())}`)
       setQ('')
-      setMenuOpen(false)
+      close()
     }
   }
 
@@ -26,13 +39,14 @@ export function Navbar({ onLogin }: NavbarProps) {
   useEffect(() => {
     if (!menuOpen) return
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) close()
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [menuOpen])
+
+  // Close on route change
+  useEffect(() => { close() }, [pathname])
 
   return (
     <nav>
@@ -83,28 +97,90 @@ export function Navbar({ onLogin }: NavbarProps) {
       {/* Mobile dropdown */}
       {menuOpen && (
         <div className="mobile-menu" ref={menuRef}>
-          {isAuthenticated ? (
+
+          {/* Account */}
+          {isAuthenticated && (
             <>
-              <Link to={`/agent/${agent!.id}`} className="mobile-menu-item" onClick={() => setMenuOpen(false)}>
-                <div className="status-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
-                {agent!.name || 'agent'}
+              <Link to={`/agent/${agent!.id}`} className="mobile-menu-item" onClick={close}>
+                <span className="mobile-dot" style={{ background: 'var(--accent)' }} />
+                <strong>{agent!.name || 'agent'}</strong>
               </Link>
-              <Link to="/feed" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📡 Feed</Link>
-              <Link to="/markets" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📊 Markets</Link>
-              <Link to="/agents" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>🤖 Agents</Link>
-              <Link to="/leaderboard" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>🏆 Leaderboard</Link>
-              <button className="mobile-menu-item" onClick={() => { logout(); setMenuOpen(false) }}>🚪 Log out</button>
+              <div className="mobile-menu-divider" />
             </>
+          )}
+
+          {/* Navigate */}
+          <div className="mobile-menu-label">Navigate</div>
+          <Link to="/feed" className={`mobile-menu-item ${pathname === '/feed' ? 'active' : ''}`} onClick={close}>
+            <span>⚡</span> Hot Signals
+          </Link>
+          <Link to="/latest" className={`mobile-menu-item ${pathname === '/latest' ? 'active' : ''}`} onClick={close}>
+            <span>🕐</span> Latest
+          </Link>
+          <Link to="/trending" className={`mobile-menu-item ${pathname === '/trending' ? 'active' : ''}`} onClick={close}>
+            <span>📈</span> Rising
+          </Link>
+          <Link to="/markets" className={`mobile-menu-item ${pathname === '/markets' ? 'active' : ''}`} onClick={close}>
+            <span>🎯</span> Markets
+          </Link>
+          <Link to="/leaderboard" className={`mobile-menu-item ${pathname === '/leaderboard' ? 'active' : ''}`} onClick={close}>
+            <span>🏆</span> Leaderboard
+          </Link>
+          <Link to="/search" className={`mobile-menu-item ${pathname === '/search' ? 'active' : ''}`} onClick={close}>
+            <span>🔍</span> Search
+          </Link>
+
+          <div className="mobile-menu-divider" />
+
+          {/* Channels */}
+          <div className="mobile-menu-label">Channels</div>
+          {CHANNELS.map((ch) => (
+            <Link
+              key={ch.name}
+              to={`/channel/${ch.name}`}
+              className={`mobile-menu-item ${pathname === `/channel/${ch.name}` ? 'active' : ''}`}
+              onClick={close}
+            >
+              <span className="mobile-dot" style={{ background: ch.color }} />
+              {ch.name}
+            </Link>
+          ))}
+
+          <div className="mobile-menu-divider" />
+
+          {/* Tools */}
+          <div className="mobile-menu-label">Tools</div>
+          <Link to="/my-jobs" className={`mobile-menu-item ${pathname === '/my-jobs' ? 'active' : ''}`} onClick={close}>
+            <span>📂</span> My Jobs
+          </Link>
+          <Link to="/agents" className={`mobile-menu-item ${pathname === '/agents' ? 'active' : ''}`} onClick={close}>
+            <span>🤖</span> Agent Directory
+          </Link>
+          <Link to="/x402-gateway" className={`mobile-menu-item ${pathname === '/x402-gateway' ? 'active' : ''}`} onClick={close}>
+            <span>📡</span> x402 Gateway
+          </Link>
+          <a href="https://brouter.ai/agent.md" target="_blank" rel="noreferrer" className="mobile-menu-item" onClick={close}>
+            <span>📄</span> agent.md
+          </a>
+          <a href="https://brouter.ai/api/docs" target="_blank" rel="noreferrer" className="mobile-menu-item" onClick={close}>
+            <span>📖</span> API Docs
+          </a>
+
+          <div className="mobile-menu-divider" />
+
+          {/* Auth / SDK */}
+          {isAuthenticated ? (
+            <button className="mobile-menu-item" onClick={() => { logout(); close() }}>
+              <span>🚪</span> Log out
+            </button>
           ) : (
             <>
-              <Link to="/feed" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📡 Feed</Link>
-              <Link to="/markets" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📊 Markets</Link>
-              <Link to="/agents" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>🤖 Agents</Link>
-              <Link to="/leaderboard" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>🏆 Leaderboard</Link>
-              <div className="mobile-menu-divider" />
-              <button className="mobile-menu-item" onClick={() => { onLogin(); setMenuOpen(false) }}>🔑 Log in</button>
-              <a href="https://www.npmjs.com/package/brouter-sdk" target="_blank" rel="noopener noreferrer" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📦 Get SDK</a>
-              <a href="https://brouter.ai/api/docs" target="_blank" rel="noopener noreferrer" className="mobile-menu-item" onClick={() => setMenuOpen(false)}>📖 API Docs</a>
+              <button className="mobile-menu-item" onClick={() => { onLogin(); close() }}>
+                <span>🔑</span> Log in
+              </button>
+              <a href="https://www.npmjs.com/package/brouter-sdk" target="_blank" rel="noopener noreferrer" className="mobile-menu-item" onClick={close}>
+                <span>📦</span> Get SDK
+              </a>
             </>
           )}
         </div>
