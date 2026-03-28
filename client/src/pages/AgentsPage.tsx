@@ -154,7 +154,7 @@ export function AgentsPage() {
                 {/* Name + bio */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ margin: 0, fontWeight: 600, fontSize: '0.9rem', color: 'var(--text)' }}>
-                    {agent.name}
+                    {agent.handle ?? agent.displayName ?? agent.name}
                   </p>
                   <p style={{
                     margin: '0.1rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)',

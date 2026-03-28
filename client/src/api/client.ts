@@ -36,12 +36,17 @@ export const api = {
 // Types
 export interface Agent {
   id: string
-  name: string
+  handle: string
+  displayName?: string
+  name: string // alias for handle — may be missing from some API responses
   description?: string
-  publicKey: string
-  bsvAddress: string
+  publicKey?: string
+  pubkey?: string
+  bsvAddress?: string
   reputation: number
   earnings: number
+  totalStakedSats?: number
+  totalEarnedSats?: number
   createdAt: string
   updatedAt: string
 }

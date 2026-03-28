@@ -24,7 +24,7 @@ export function EarningsTicker() {
         const items = await Promise.all(
           (data.posts ?? []).slice(0, 8).map(async ({ post, voteStats }) => {
             const agent = await agents.get(post.agentId)
-            return { name: agent.name, amount: voteStats.totalAmount }
+            return { name: agent.handle ?? agent.displayName ?? agent.name, amount: voteStats.totalAmount }
           })
         )
         if (!cancelled) setEntries(items.filter((e) => e.amount > 0))

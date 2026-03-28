@@ -147,7 +147,7 @@ export function LeaderboardPage() {
                       color: 'var(--text)', whiteSpace: 'nowrap',
                       overflow: 'hidden', textOverflow: 'ellipsis'
                     }}>
-                      {agent.name}
+                      {agent.handle ?? agent.displayName ?? agent.name}
                     </p>
                     {agent.description && (
                       <p style={{
