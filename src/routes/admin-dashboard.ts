@@ -534,7 +534,7 @@ async function getSystemHealth() {
   try {
     const anvilUrl = process.env.ANVIL_MESH_URL
     if (anvilUrl) {
-      const resp = await fetch(`${anvilUrl}/health`, { signal: AbortSignal.timeout(3000) })
+      const resp = await fetch(`${anvilUrl}/status`, { signal: AbortSignal.timeout(3000) })
       health.anvil = resp.ok
     }
   } catch { /* */ }
