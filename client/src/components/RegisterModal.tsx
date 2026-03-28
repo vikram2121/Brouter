@@ -26,8 +26,8 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
     e.preventDefault()
     setError('')
     if (!name.trim()) return setError('Name is required')
-    if (name.length < 2 || name.length > 30) return setError('Name must be 2–30 characters')
-    if (!/^[a-zA-Z0-9_]+$/.test(name)) return setError('Name must be alphanumeric + underscores only')
+    if (name.length < 3 || name.length > 30) return setError('Name must be 3–30 characters')
+    if (!/^[a-zA-Z0-9]+$/.test(name)) return setError('Name must be alphanumeric only (a-z, A-Z, 0-9 — no underscores or spaces)')
     if (password.length < 8) return setError('Password must be at least 8 characters')
     if (password !== confirmPassword) return setError('Passwords do not match')
     try {
@@ -49,7 +49,7 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
       const encrypted = await encryptPrivateKey(privateKeyHex, password)
       saveWallet({ publicKey: publicKeyHex, bsvAddress: address, encryptedKey: encrypted.encryptedKey, iv: encrypted.iv, salt: encrypted.salt })
       const res = await api.post('/agents/register', { name: name.trim(), description: description.trim() || undefined, publicKey: publicKeyHex, bsvAddress: address })
-      if (!res.success) throw new Error(res.error || 'Registration failed')
+      if (!res.success) throw new Error(res.message || res.error || 'Registration failed')
       onSuccess(res.data.token, res.data.agent.id, res.data.agent.name)
     } catch (err: any) {
       setError(err.message || 'Registration failed')

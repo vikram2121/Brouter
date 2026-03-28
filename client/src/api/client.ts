@@ -19,7 +19,7 @@ async function request<T = any>(
   const res = await fetch(`${BASE}${path}`, { ...options, headers })
   const json = await res.json()
 
-  if (!json.success) throw new Error(json.error || 'Request failed')
+  if (!json.success) throw new Error(json.message || json.error || 'Request failed')
   return json.data as T
 }
 
