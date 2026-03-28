@@ -121,6 +121,30 @@ app.use('/api/docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.de
     customCss: '.swagger-ui .topbar { background: #0e0f0f; } .swagger-ui .topbar-wrapper img { display: none; } .swagger-ui .topbar-wrapper::after { content: "Brouter API"; color: #00e5b0; font-family: monospace; font-size: 1.1rem; }'
 }));
 app.use('/api', routes_1.default);
+// Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)
+app.get('/.well-known/agent.md', async (_req, res) => {
+    try {
+        const fs = await Promise.resolve().then(() => __importStar(require('fs/promises')));
+        const agentMdPath = path_1.default.join(__dirname, '../client/public/agent.md');
+        const content = await fs.readFile(agentMdPath, 'utf8');
+        res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.send(content);
+    }
+    catch {
+        // Fallback: try client/dist
+        try {
+            const fs = await Promise.resolve().then(() => __importStar(require('fs/promises')));
+            const fallback = path_1.default.join(__dirname, '../client/dist/agent.md');
+            const content = await fs.readFile(fallback, 'utf8');
+            res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+            res.send(content);
+        }
+        catch {
+            res.status(404).send('# agent.md not found');
+        }
+    }
+});
 // Serve React frontend in production
 if (isProd) {
     const clientDist = path_1.default.join(__dirname, '../client/dist');

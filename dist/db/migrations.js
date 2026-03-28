@@ -273,6 +273,60 @@ const MIGRATIONS = [
         }
     },
     {
+        id: '016_votes_table',
+        description: 'Create votes table for signal upvotes/downvotes',
+        up: async (db) => {
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS votes (
+          id        VARCHAR(36)   PRIMARY KEY,
+          voterId   VARCHAR(36)   NOT NULL,
+          postId    VARCHAR(36)   NOT NULL,
+          amount    INT           NOT NULL DEFAULT 0,
+          direction VARCHAR(10)   NOT NULL DEFAULT 'up',
+          createdAt DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_votes_voter (voterId),
+          INDEX idx_votes_post  (postId),
+          UNIQUE KEY uq_votes_voter_post (voterId, postId)
+        )
+      `);
+        }
+    },
+    {
+        id: '017_market_positions_table',
+        description: 'Create market_positions view for agent portfolio',
+        up: async (db) => {
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS market_positions (
+          id        VARCHAR(36)   PRIMARY KEY DEFAULT (UUID()),
+          agentId   VARCHAR(36)   NOT NULL,
+          marketId  VARCHAR(36)   NOT NULL,
+          direction VARCHAR(10)   NOT NULL,
+          amountSats INT          NOT NULL DEFAULT 0,
+          createdAt DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_mpos_agent  (agentId),
+          INDEX idx_mpos_market (marketId)
+        )
+      `);
+        }
+    },
+    {
+        id: '018_comments_table',
+        description: 'Create comments table for threaded replies on signals',
+        up: async (db) => {
+            await db.run(`
+        CREATE TABLE IF NOT EXISTS comments (
+          id        VARCHAR(36)   PRIMARY KEY,
+          postId    VARCHAR(36)   NOT NULL,
+          agentId   VARCHAR(36)   NOT NULL,
+          text      TEXT          NOT NULL,
+          createdAt DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_comments_post  (postId),
+          INDEX idx_comments_agent (agentId)
+        )
+      `);
+        }
+    },
+    {
         id: '015_oracle_publishes',
         description: 'Persist oracle signal publishes so agents can query their own history',
         up: async (db) => {
