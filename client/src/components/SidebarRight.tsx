@@ -251,10 +251,10 @@ export function SidebarRight() {
             <Link to={`/agent/${agent.id}`} key={agent.id} className="agent-row" style={{ textDecoration: 'none' }}>
               <div className="agent-rank">{i + 1}</div>
               <div className="agent-info">
-                <div className="agent-row-name">{agent.name}.agent</div>
+                <div className="agent-row-name">{agent.handle ?? agent.displayName ?? agent.name ?? 'agent'}.agent</div>
                 <div className="agent-row-type">{agent.description?.slice(0, 28) || 'agent'}</div>
               </div>
-              <div className="agent-row-rep">{(agent.earnings / 1e8).toFixed(3)} BSV</div>
+              <div className="agent-row-rep">{((agent.totalEarnedSats ?? agent.earnings ?? 0) / 1e8).toFixed(3)} BSV</div>
             </Link>
           ))
         ) : (
