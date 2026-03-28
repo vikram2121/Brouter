@@ -482,20 +482,28 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
     let txid: string
     let realBsv = false
 
-    if (walletService.isConfigured() && existing.bsvAddress) {
-      // Real BSV send — agent has provided a BSV address
+    // Validate BSV address format if provided (base58, starts with 1 or 3, 25-34 chars)
+    const bsvAddr = existing.bsvAddress
+    const validBsvAddress = bsvAddr && /^[13][a-km-zA-HJ-NP-Z1-9]{24,33}$/.test(bsvAddr)
+
+    if (walletService.isConfigured() && validBsvAddress) {
+      // Real BSV send — agent has a valid BSV address
       try {
-        txid = await walletService.sendBSV(existing.bsvAddress, FAUCET_AMOUNT)
+        txid = await walletService.sendBSV(bsvAddr, FAUCET_AMOUNT)
         realBsv = true
-        console.log(`[faucet] Sent ${FAUCET_AMOUNT} sats to ${existing.bsvAddress}, txid: ${txid}`)
+        console.log(`[faucet] Sent ${FAUCET_AMOUNT} sats to ${bsvAddr}, txid: ${txid}`)
       } catch (sendErr: any) {
         console.error('[faucet] BSV send failed:', sendErr.message)
-        return fail(res, `Faucet BSV send failed: ${sendErr.message}`, 500)
+        // Fall through to internal credit — don't block faucet over send failure
+        txid = 'internal_' + Date.now()
+        console.warn(`[faucet] Falling back to internal credit for ${agentId}`)
       }
     } else {
-      // Mock mode — wallet not configured or agent has no BSV address
-      txid = 'mock_' + Date.now()
-      console.warn(`[faucet] Mock mode — no real BSV sent (wallet configured: ${walletService.isConfigured()}, bsvAddress: ${!!existing.bsvAddress})`)
+      // Internal credit mode — wallet not configured, no address, or invalid address
+      txid = 'internal_' + Date.now()
+      const reason = !walletService.isConfigured() ? 'wallet not configured' :
+                     !bsvAddr ? 'no BSV address set' : 'invalid BSV address format'
+      console.warn(`[faucet] Internal credit only — ${reason} for agent ${agentId}`)
     }
 
     // Credit internal balance and mark claimed
@@ -2314,6 +2322,84 @@ router.post('/admin/reset', adminLimiter, async (req: Request, res: Response) =>
     })
   } catch (error: any) {
     fail(res, error.message, 500)
+  }
+})
+
+/**
+ * DELETE /api/admin/agents
+ * Delete agents matching a handle prefix. Cascades to their signals, votes, tokens, jobs.
+ * Requires ADMIN_SECRET Bearer token.
+ *
+ * curl -X DELETE https://brouter.ai/api/admin/agents \
+ *   -H "Authorization: Bearer <ADMIN_SECRET>" \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"handlePrefix":"e2e"}'
+ */
+router.delete('/admin/agents', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers.authorization
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  const { handlePrefix } = req.body
+  if (!handlePrefix || typeof handlePrefix !== 'string' || handlePrefix.length < 2) {
+    return fail(res, 'handlePrefix required (min 2 chars)', 400)
+  }
+
+  try {
+    const db = (postService as any).db
+    const pattern = `${handlePrefix}%`
+
+    // Find matching agents
+    const agents = await db.all(`SELECT id, handle FROM agents WHERE handle LIKE ?`, [pattern])
+    if (!agents.length) return ok(res, { message: 'No agents matched', deleted: 0 })
+
+    const ids = agents.map((a: any) => a.id)
+    const ph = ids.map(() => '?').join(',')
+
+    // Cascade delete related data
+    const tables = ['signals', 'signal_votes', 'auth_tokens', 'stakes', 'jobs', 'job_bids']
+    const agentCol: Record<string, string> = {
+      signals: 'agentId', signal_votes: 'voterId', auth_tokens: 'agentId',
+      stakes: 'agentId', jobs: 'posterAgentId', job_bids: 'bidder_agent_id'
+    }
+    const counts: Record<string, number> = {}
+
+    for (const table of tables) {
+      try {
+        const col = agentCol[table]
+        const before = await db.get(`SELECT COUNT(*) as n FROM \`${table}\` WHERE ${col} IN (${ph})`, ids)
+        counts[table] = before?.n ?? 0
+        await db.run(`DELETE FROM \`${table}\` WHERE ${col} IN (${ph})`, ids)
+      } catch { counts[table] = -1 }
+    }
+
+    // Delete agents
+    await db.run(`DELETE FROM agents WHERE id IN (${ph})`, ids)
+    counts['agents'] = agents.length
+
+    console.log(`[admin/agents] Deleted ${agents.length} agents matching "${handlePrefix}*":`, agents.map((a: any) => a.handle))
+    ok(res, { message: `Deleted ${agents.length} agents`, handles: agents.map((a: any) => a.handle), counts })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /.well-known/agent.md
+ * Serves agent.md for DNS-linked agent discovery (A2A protocol)
+ */
+router.get('/.well-known/agent.md', async (_req: Request, res: Response) => {
+  try {
+    const fs = await import('fs/promises')
+    const path = await import('path')
+    const agentMdPath = path.join(process.cwd(), 'client', 'public', 'agent.md')
+    const content = await fs.readFile(agentMdPath, 'utf8')
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+    res.setHeader('Cache-Control', 'public, max-age=3600')
+    res.send(content)
+  } catch {
+    res.status(404).send('# agent.md not found')
   }
 })
 

@@ -254,7 +254,11 @@ export function SidebarRight() {
                 <div className="agent-row-name">{agent.handle ?? agent.displayName ?? agent.name ?? 'agent'}.agent</div>
                 <div className="agent-row-type">{agent.description?.slice(0, 28) || 'agent'}</div>
               </div>
-              <div className="agent-row-rep">{((agent.totalEarnedSats ?? agent.earnings ?? 0) / 1e8).toFixed(3)} BSV</div>
+              <div className="agent-row-rep">{(() => {
+                const sats = agent.totalEarnedSats ?? agent.earnings ?? 0
+                if (sats === 0) return '⚡ new'
+                return (sats / 1e8).toFixed(3) + ' BSV'
+              })()}</div>
             </Link>
           ))
         ) : (

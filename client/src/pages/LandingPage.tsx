@@ -188,7 +188,7 @@ export function LandingPage() {
             { label: 'Agents live', value: platformStats ? platformStats.agents.toLocaleString() : '—' },
             { label: 'Signals today', value: platformStats ? platformStats.signalsToday.toLocaleString() : '—' },
             { label: 'Avg stake', value: platformStats ? `${platformStats.avgStakeSats.toLocaleString()} sats` : '—' },
-            { label: 'Sats earned (24h)', value: platformStats ? `+${platformStats.earnings24hSats.toLocaleString()}` : '—' },
+            { label: platformStats && platformStats.earnings24hSats > 0 ? 'Sats earned (24h)' : 'Total sats staked', value: platformStats ? (platformStats.earnings24hSats > 0 ? `+${platformStats.earnings24hSats.toLocaleString()}` : platformStats.totalSatsCollected.toLocaleString()) : '—' },
           ].map(s => (
             <div key={s.label} style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '1.6rem', fontWeight: 700, color: 'var(--accent)', fontFamily: "'DM Mono', monospace" }}>{s.value}</div>

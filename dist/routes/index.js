@@ -682,6 +682,20 @@ router.get('/agents/:id/positions', async (req, res) => {
         fail(res, error.message, 500);
     }
 });
+/** GET /api/calibration/top — global leaderboard, top agents per domain */
+router.get('/calibration/top', async (_req, res) => {
+    try {
+        const domains = ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta'];
+        const leaderboard = {};
+        for (const domain of domains) {
+            leaderboard[domain] = await calibrationService.topAgents(domain, 10);
+        }
+        ok(res, { leaderboard });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
 /** GET /api/agents/:id/calibration — agent calibration scores by domain */
 router.get('/agents/:id/calibration', async (req, res) => {
     try {
@@ -701,6 +715,39 @@ router.get('/agents/:id/earnings', async (req, res) => {
     try {
         const earnings = await agentService.getEarnings(req.params.id);
         ok(res, { earnings });
+    }
+    catch (error) {
+        fail(res, error.message, 500);
+    }
+});
+/**
+ * GET /api/agents/:id/wallet-stats
+ * Single call for the wallet widget — all real stats for one agent.
+ */
+router.get('/agents/:id/wallet-stats', async (req, res) => {
+    try {
+        const agentId = req.params.id;
+        const agentRow = await connection_1.db.get(`SELECT totalEarnedSats, bsvAddress FROM agents WHERE id = ?`, [agentId]);
+        if (!agentRow)
+            return fail(res, 'Agent not found', 404);
+        // Earned in last 7 days from signal_payouts
+        const earnedRow = await connection_1.db.get(`SELECT COALESCE(SUM(payoutSats), 0) as earned7d
+       FROM signal_payouts
+       WHERE agentId = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`, [agentId]);
+        // Currently staked (open positions not yet paid out)
+        const stakedRow = await connection_1.db.get(`SELECT COALESCE(SUM(amountSats), 0) as staked
+       FROM stakes
+       WHERE agentId = ? AND payoutTxid IS NULL`, [agentId]);
+        // x402 calls — count oracle publishes for this agent as proxy for x402 exposure
+        const x402Row = await connection_1.db.get(`SELECT COUNT(*) as x402Count FROM oracle_publishes WHERE agent_id = ?`, [agentId]);
+        ok(res, {
+            bsvAddress: agentRow.bsvAddress || null,
+            totalEarnedSats: agentRow.totalEarnedSats || 0,
+            earned7dSats: earnedRow?.earned7d || 0,
+            stakedSats: stakedRow?.staked || 0,
+            x402Count: x402Row?.x402Count || 0,
+            tracesSold: 0, // populated when x402_payments gains per-agent tracking
+        });
     }
     catch (error) {
         fail(res, error.message, 500);
@@ -1649,41 +1696,20 @@ router.get('/agents/:id/oracle/signals', requireAuth, async (req, res) => {
         const agent = await agentService.getById(agentId);
         if (!agent)
             return fail(res, 'Agent not found', 404);
-        if (!anvilService.enabled) {
-            return ok(res, { signals: [], total: 0, note: 'Anvil mesh not configured' });
-        }
-        // Query all topics this agent has published to (agent:agentId source filter)
-        // We query the mesh for the agent's own signals by pubkey
-        const agentSource = `agent:${agentId}`;
         const priceSats = Number(process.env.ANVIL_ORACLE_PRICE_SATS || 50);
-        // Fetch all oracle envelopes from the node and filter by source
-        const nodeUrl = anvilService.nodeUrl;
-        const authToken = process.env.ANVIL_AUTH_TOKEN || '';
-        const resp = await fetch(`${nodeUrl}/data?topic=brouter:oracle:`, {
-            headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-        }).catch(() => null);
-        let allSignals = [];
-        if (resp && resp.ok) {
-            const data = await resp.json();
-            const envelopes = data.envelopes || [];
-            for (const env of envelopes) {
-                try {
-                    const payload = JSON.parse(env.payload || '{}');
-                    if (payload.source === agentSource) {
-                        allSignals.push({
-                            marketId: payload.marketId,
-                            outcome: payload.outcome,
-                            confidence: payload.confidence,
-                            evidenceUrl: payload.evidenceUrl,
-                            publishedAt: new Date(env.timestamp * 1000).toISOString(),
-                            topic: env.topic,
-                            price_sats: priceSats,
-                        });
-                    }
-                }
-                catch { }
-            }
-        }
+        // Query from DB — oracle_publishes table persisted at publish time
+        const rows = await connection_1.db.all(`SELECT market_id, outcome, confidence, evidence_url, price_sats, topic, monetised, createdAt
+       FROM oracle_publishes WHERE agent_id = ? ORDER BY createdAt DESC LIMIT 100`, [agentId]);
+        const allSignals = (rows || []).map((r) => ({
+            marketId: r.market_id,
+            outcome: r.outcome,
+            confidence: Number(r.confidence),
+            evidenceUrl: r.evidence_url || null,
+            publishedAt: r.createdAt,
+            topic: r.topic,
+            price_sats: r.price_sats,
+            monetised: !!r.monetised,
+        }));
         ok(res, {
             agentId,
             bsvAddress: agent.bsvAddress || null,
@@ -1733,6 +1759,15 @@ router.post('/agents/:id/oracle/publish', requireAuth, async (req, res) => {
             resolvedAt: Math.floor(Date.now() / 1000),
         };
         const result = await anvilService.publishAgentSignal(agentId, signal, agent.bsvAddress || '', priceSats ? Number(priceSats) : undefined);
+        // Persist publish record so agent can query their own signal history
+        try {
+            await connection_1.db.run(`INSERT INTO oracle_publishes (agent_id, market_id, outcome, confidence, evidence_url, price_sats, topic, monetised)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [agentId, marketId, outcome, Number(confidence), evidenceUrl || null,
+                result.priceSats || 50, result.topic, agent.bsvAddress ? 1 : 0]);
+        }
+        catch (dbErr) {
+            console.warn('oracle_publishes insert failed (non-fatal):', dbErr.message);
+        }
         ok(res, {
             published: result.accepted,
             topic: result.topic,
@@ -1828,9 +1863,11 @@ router.get('/markets/:id/oracle/signals', async (req, res) => {
 router.post('/jobs', requireAuth, async (req, res) => {
     try {
         const agentId = req.agentId;
-        const { postId, channel, task, budgetSats, deadline, requiredCalibration, callbackUrl, txid, lockHeight, scriptType } = req.body;
-        if (!postId || !channel || !task) {
-            return res.status(400).json({ error: 'postId, channel, and task are required' });
+        const { channel, task, budgetSats, deadline, requiredCalibration, callbackUrl, txid, lockHeight, scriptType } = req.body;
+        // postId is optional for API consumers — auto-generate if not provided
+        const postId = req.body.postId || `job-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        if (!channel || !task) {
+            return res.status(400).json({ error: 'channel and task are required' });
         }
         if (!['agent-hiring', 'nlocktime-jobs'].includes(channel)) {
             return res.status(400).json({ error: 'channel must be agent-hiring or nlocktime-jobs' });

@@ -115,8 +115,8 @@ export function HomePage() {
           </div>
         </div>
         <div className="channel-earn">
-          <div className="earn-label">Upvote Earnings (24h)</div>
-          <div className="earn-value">{platformStats ? `+${platformStats.earnings24hSats.toLocaleString()} sats` : '—'}</div>
+          <div className="earn-label">{platformStats && platformStats.earnings24hSats > 0 ? 'Upvote Earnings (24h)' : 'Total Sats Collected'}</div>
+          <div className="earn-value">{platformStats ? (platformStats.earnings24hSats > 0 ? `+${platformStats.earnings24hSats.toLocaleString()} sats` : `${platformStats.totalSatsCollected.toLocaleString()} sats`) : '—'}</div>
           <Link to="/markets" className="nav-btn btn-ghost" style={{ fontSize: '0.7rem', padding: '0.3rem 0.7rem', marginTop: '0.25rem', textDecoration: 'none' }}>
             Markets →
           </Link>
