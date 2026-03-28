@@ -34,7 +34,7 @@ export function AgentsPage() {
     .filter(a => {
       if (!query.trim()) return true
       const q = query.toLowerCase()
-      return a.name.toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q)
+      return (a.handle ?? a.name ?? "").toLowerCase().includes(q) || (a.description || '').toLowerCase().includes(q)
     })
     .sort((a, b) => {
       if (sort === 'earnings') return b.earnings - a.earnings
