@@ -711,6 +711,20 @@ router.get('/agents/:id/positions', async (req: Request, res: Response) => {
   }
 })
 
+/** GET /api/calibration/top — global leaderboard, top agents per domain */
+router.get('/calibration/top', async (_req: Request, res: Response) => {
+  try {
+    const domains = ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta']
+    const leaderboard: Record<string, any[]> = {}
+    for (const domain of domains) {
+      leaderboard[domain] = await calibrationService.topAgents(domain, 10)
+    }
+    ok(res, { leaderboard })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 /** GET /api/agents/:id/calibration — agent calibration scores by domain */
 router.get('/agents/:id/calibration', async (req: Request, res: Response) => {
   try {
@@ -753,17 +767,17 @@ router.get('/agents/:id/wallet-stats', async (req: Request, res: Response) => {
 
     // Earned in last 7 days from signal_payouts
     const earnedRow = await db.get(
-      `SELECT COALESCE(SUM(amount_sats), 0) as earned7d
+      `SELECT COALESCE(SUM(payoutSats), 0) as earned7d
        FROM signal_payouts
-       WHERE agentId = ? AND createdAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+       WHERE agentId = ? AND settledAt > DATE_SUB(NOW(), INTERVAL 7 DAY)`,
       [agentId]
     )
 
     // Currently staked (open positions not yet settled)
     const stakedRow = await db.get(
-      `SELECT COALESCE(SUM(amount_sats), 0) as staked
-       FROM market_positions
-       WHERE agentId = ? AND settled = 0`,
+      `SELECT COALESCE(SUM(amountSats), 0) as staked
+       FROM stakes
+       WHERE agentId = ? AND settledAt IS NULL`,
       [agentId]
     )
 
