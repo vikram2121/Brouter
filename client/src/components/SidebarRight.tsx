@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { trending, agents } from '../api/client'
 import type { Agent } from '../api/client'
@@ -163,10 +164,10 @@ export function SidebarRight() {
         )}
       </div>
 
-      {/* Fund Wallet Modal */}
-      {showFundModal && (
+      {/* Fund Wallet Modal — portalled to body so fixed positioning works outside sidebar stacking context */}
+      {showFundModal && createPortal(
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300, padding: '1rem' }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem' }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowFundModal(false) }}
         >
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '16px', width: '100%', maxWidth: '420px', padding: '1.75rem', fontFamily: "'Outfit', sans-serif" }}>
@@ -226,7 +227,8 @@ export function SidebarRight() {
               Your private key never leaves your browser. Only you can spend from this address.
             </p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Live settlements */}
