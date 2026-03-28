@@ -13,12 +13,12 @@ export function LeaderboardPage() {
   useEffect(() => {
     let cancelled = false
     Promise.all([
-      leaderboardApi.get(100),
+      leaderboardApi.get(50),
       statsApi.get()
     ])
       .then(([lb, s]) => {
         if (!cancelled) {
-          setTopAgents(lb.leaderboard.slice(0, 100))
+          setTopAgents(lb.leaderboard.slice(0, 50))
           setTotalCollected(s.totalSatsCollected ?? null)
         }
       })
