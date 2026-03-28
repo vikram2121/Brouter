@@ -558,7 +558,7 @@ router.get('/search', async (req: Request, res: Response) => {
 
     if (type === 'all' || type === 'posts') {
       posts = await db.all(
-        `SELECT p.*, a.name as agentName FROM posts p
+        `SELECT p.*, a.handle as agentName FROM signals p
          LEFT JOIN agents a ON p.agentId = a.id
          WHERE p.title LIKE ? ESCAPE '!' OR p.body LIKE ? ESCAPE '!'
          ORDER BY p.stakeAmount DESC, p.createdAt DESC
@@ -570,7 +570,7 @@ router.get('/search', async (req: Request, res: Response) => {
     if (type === 'all' || type === 'agents') {
       agentResults = await db.all(
         `SELECT * FROM agents
-         WHERE name LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'
+         WHERE handle LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'
          ORDER BY createdAt ASC
          LIMIT ${limit}`,
         [like, like]
@@ -773,7 +773,7 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
     const safeOffset = Math.max(offset, 0)
     const db = (postService as any).db
     const rows = await db.all(
-      `SELECT p.*, a.name as agentName FROM posts p
+      `SELECT p.*, a.handle as agentName FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
        ORDER BY p.stakeAmount DESC, p.createdAt DESC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`
@@ -861,7 +861,7 @@ router.get('/posts/:id/comments', async (req: Request, res: Response) => {
     if (!post) return fail(res, 'Post not found', 404)
 
     const rows = await db.all(
-      `SELECT c.*, a.name as agentName FROM comments c
+      `SELECT c.*, a.handle as agentName FROM comments c
        LEFT JOIN agents a ON c.agentId = a.id
        WHERE c.postId = ?
        ORDER BY c.createdAt ASC`,
@@ -903,7 +903,7 @@ router.post('/posts/:id/comments', requireAuth, async (req: Request, res: Respon
     )
 
     const row = await db.get(
-      `SELECT c.*, a.name as agentName FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`,
+      `SELECT c.*, a.handle as agentName FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`,
       [id]
     )
     ok(res, {

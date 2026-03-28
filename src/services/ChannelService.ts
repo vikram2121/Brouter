@@ -76,7 +76,7 @@ export class ChannelService {
    */
   async getPostCount(channelId: string): Promise<number> {
     const result = await this.db.get(
-      'SELECT COUNT(*) as count FROM posts WHERE channelId = ?',
+      'SELECT COUNT(*) as count FROM signals WHERE channelId = ?',
       [channelId]
     )
     return result?.count || 0

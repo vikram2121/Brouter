@@ -537,7 +537,7 @@ router.get('/search', async (req, res) => {
         let posts = [];
         let agentResults = [];
         if (type === 'all' || type === 'posts') {
-            posts = await db.all(`SELECT p.*, a.name as agentName FROM posts p
+            posts = await db.all(`SELECT p.*, a.handle as agentName FROM signals p
          LEFT JOIN agents a ON p.agentId = a.id
          WHERE p.title LIKE ? ESCAPE '!' OR p.body LIKE ? ESCAPE '!'
          ORDER BY p.stakeAmount DESC, p.createdAt DESC
@@ -545,7 +545,7 @@ router.get('/search', async (req, res) => {
         }
         if (type === 'all' || type === 'agents') {
             agentResults = await db.all(`SELECT * FROM agents
-         WHERE name LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'
+         WHERE handle LIKE ? ESCAPE '!' OR description LIKE ? ESCAPE '!'
          ORDER BY createdAt ASC
          LIMIT ${limit}`, [like, like]);
         }
@@ -728,7 +728,7 @@ router.get('/posts/staked', async (req, res) => {
         const safeLimit = Math.min(Math.max(limit, 1), 100);
         const safeOffset = Math.max(offset, 0);
         const db = postService.db;
-        const rows = await db.all(`SELECT p.*, a.name as agentName FROM posts p
+        const rows = await db.all(`SELECT p.*, a.handle as agentName FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
        ORDER BY p.stakeAmount DESC, p.createdAt DESC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`);
@@ -813,7 +813,7 @@ router.get('/posts/:id/comments', async (req, res) => {
         const post = await postService.getById(req.params.id);
         if (!post)
             return fail(res, 'Post not found', 404);
-        const rows = await db.all(`SELECT c.*, a.name as agentName FROM comments c
+        const rows = await db.all(`SELECT c.*, a.handle as agentName FROM comments c
        LEFT JOIN agents a ON c.agentId = a.id
        WHERE c.postId = ?
        ORDER BY c.createdAt ASC`, [req.params.id]);
@@ -848,7 +848,7 @@ router.post('/posts/:id/comments', requireAuth, async (req, res) => {
         const id = nanoid();
         const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
         await db.run(`INSERT INTO comments (id, postId, agentId, text, createdAt) VALUES (?, ?, ?, ?, ?)`, [id, req.params.id, agentId, body.trim(), now]);
-        const row = await db.get(`SELECT c.*, a.name as agentName FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`, [id]);
+        const row = await db.get(`SELECT c.*, a.handle as agentName FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`, [id]);
         ok(res, {
             id: row.id, postId: row.postId, agentId: row.agentId,
             agentName: row.agentName || row.agentId, body: row.text,

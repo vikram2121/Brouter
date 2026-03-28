@@ -33,7 +33,7 @@ class VoteService {
         if (amount < 0 || amount > 1000000)
             throw new Error('Invalid amount');
         // Verify post exists
-        const post = await this.db.get('SELECT id FROM posts WHERE id = ?', [postId]);
+        const post = await this.db.get('SELECT id FROM signals WHERE id = ?', [postId]);
         if (!post)
             throw new Error('Post not found');
         // Check if agent already voted on this post

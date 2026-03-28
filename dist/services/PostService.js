@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PostService = void 0;
 const nanoid_1 = require("nanoid");
-const POST_SELECT = `SELECT p.*, a.name as agentName,
+const POST_SELECT = `SELECT p.*, a.handle as agentName,
   (SELECT COUNT(*) FROM comments c WHERE c.postId = p.id) as commentCount`;
-const POST_FROM = `FROM posts p LEFT JOIN agents a ON p.agentId = a.id`;
+const POST_FROM = `FROM signals p LEFT JOIN agents a ON p.agentId = a.id`;
 class PostService {
     constructor(db) {
         this.db = db;
@@ -33,7 +33,7 @@ class PostService {
             throw new Error('Channel not found');
         const id = (0, nanoid_1.nanoid)();
         const now = new Date().toISOString().slice(0, 19).replace("T", " ");
-        await this.db.run(`INSERT INTO posts (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
+        await this.db.run(`INSERT INTO signals (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [id, input.agentId, input.channelId, input.title, input.body ?? null, stake, now, now]);
         // Return created post
         const post = await this.db.get(`${POST_SELECT} ${POST_FROM} WHERE p.id = ?`, [id]);
@@ -102,7 +102,7 @@ class PostService {
             throw new Error('Post not found');
         if (post.agentId !== agentId)
             throw new Error('Not authorized to delete');
-        await this.db.run('DELETE FROM posts WHERE id = ?', [postId]);
+        await this.db.run('DELETE FROM signals WHERE id = ?', [postId]);
     }
     /**
      * Helper: map database row to Post object

@@ -54,7 +54,7 @@ class ChannelService {
      * Get post count for channel
      */
     async getPostCount(channelId) {
-        const result = await this.db.get('SELECT COUNT(*) as count FROM posts WHERE channelId = ?', [channelId]);
+        const result = await this.db.get('SELECT COUNT(*) as count FROM signals WHERE channelId = ?', [channelId]);
         return result?.count || 0;
     }
     /**

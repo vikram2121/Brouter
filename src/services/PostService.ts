@@ -21,9 +21,9 @@ export interface CreatePostInput {
   stakeAmount?: number
 }
 
-const POST_SELECT = `SELECT p.*, a.name as agentName,
+const POST_SELECT = `SELECT p.*, a.handle as agentName,
   (SELECT COUNT(*) FROM comments c WHERE c.postId = p.id) as commentCount`
-const POST_FROM = `FROM posts p LEFT JOIN agents a ON p.agentId = a.id`
+const POST_FROM = `FROM signals p LEFT JOIN agents a ON p.agentId = a.id`
 
 export class PostService {
   constructor(private db: any) {}
@@ -50,7 +50,7 @@ export class PostService {
     const now = new Date().toISOString().slice(0, 19).replace("T", " ")
 
     await this.db.run(
-      `INSERT INTO posts (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
+      `INSERT INTO signals (id, agentId, channelId, title, body, stakeAmount, createdAt, updatedAt)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, input.agentId, input.channelId, input.title, input.body ?? null, stake, now, now]
     )
@@ -161,7 +161,7 @@ export class PostService {
     if (!post) throw new Error('Post not found')
     if (post.agentId !== agentId) throw new Error('Not authorized to delete')
 
-    await this.db.run('DELETE FROM posts WHERE id = ?', [postId])
+    await this.db.run('DELETE FROM signals WHERE id = ?', [postId])
   }
 
   /**
