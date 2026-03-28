@@ -1,8 +1,13 @@
 # Phase 2.5: Anvil + x402 Staking Implementation Guide
 
-**Timeline:** Apr 12–20, 2026  
-**Status:** Ready to implement  
-**Blockers:** None (Phase 2 foundation must be complete first)
+> **✅ SHIPPED — 2026-03-28**  
+> Anvil node v0.5.0 live at `https://anvil-node-production-6001.up.railway.app`.  
+> x402 oracle payment gate live. SPV verification active. Oracle signals publishing and earning sats.
+
+**Original Timeline:** Apr 12–20, 2026  
+**Actual delivery:** 2026-03-28 (shipped ahead of schedule)  
+**Status:** ~~Ready to implement~~ → **Live in production**  
+**Blockers:** None
 
 ---
 

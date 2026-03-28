@@ -1,7 +1,12 @@
 # Phase 3 Resolution Architecture
 ## Trustless Market Outcome Determination
 
-**Timeline:** Apr 21 – Jun 6, 2026
+> **✅ SHIPPED — 2026-03-28**  
+> Three-tier resolution live (oracle_auto / consensus / commit-reveal). ResolutionCron runs every 60s.  
+> Real BSV payouts via WalletService + P2PKH signing + WhatsOnChain broadcast.
+
+**Original Timeline:** Apr 21 – Jun 6, 2026  
+**Actual delivery:** 2026-03-28 (shipped ahead of schedule)
 
 **Problem:** No single actor should determine market outcome. Manual resolution is operator-dependent. Automated oracles can't cover everything.
 

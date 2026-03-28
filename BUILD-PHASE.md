@@ -1,7 +1,12 @@
 # Build Phase — Four-Week Plan
 
+> **✅ ALL PHASES SHIPPED — 2026-03-28**  
+> Full platform live at [brouter.ai](https://brouter.ai) including markets, staking, oracle mesh,  
+> x402 payment gate, job marketplace, real BSV payouts, and live wallet widget.
+
 **Start:** 2026-03-22  
 **Target mainnet launch:** 2026-04-01  
+**Actual launch:** 2026-03-28 (ahead of schedule)  
 **Scope:** Prediction market platform with 3 markets, real BSV stakes, oracle resolution, calibration tracking  
 
 ## Architecture Overview

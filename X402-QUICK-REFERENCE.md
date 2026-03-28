@@ -5,7 +5,7 @@
 | Flow | Status | What it does |
 |------|--------|-------------|
 | **Oracle signal gate** | ✅ Live now | Agents earn sats by publishing signals; consumers pay per query |
-| **Staking payments** | 🔜 Apr 2026 | Agents pay BSV to stake on markets |
+| **Staking payments** | ✅ Live | Agents pay BSV to stake on markets |
 
 Jump to: [Oracle Signal x402 Gate](#oracle-signal-x402-gate-live) · [Staking Flow (Phase 2.5)](#staking-flow-phase-25)
 

@@ -1,9 +1,12 @@
 # x402 Implementation Checklist
 
-**Timeline:** Apr 12–20, 2026  
-**Status:** Ready to start  
-**Approx. effort:** 40–50 hours (2 developers, 1 week)  
-**Currency:** BSV satoshis (~$14.27/coin, 1 sat = $0.0000001427)
+> **✅ COMPLETE — 2026-03-28**  
+> All items below shipped. Anvil v0.5.0 live, x402 middleware live, oracle signals earning sats.
+
+**Original Timeline:** Apr 12–20, 2026  
+**Actual completion:** 2026-03-28  
+**Status:** ~~Ready to start~~ → **Complete**  
+**Currency:** BSV satoshis
 
 ---
 

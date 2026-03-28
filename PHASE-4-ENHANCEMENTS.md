@@ -1,7 +1,12 @@
 # Phase 4 Enhancements
 ## Resolution System Improvements (Post-Launch Iteration)
 
-**Timeline:** Jun 7+ (after Phase 3 launch and stabilization)
+> **✅ SHIPPED — 2026-03-28**  
+> Job marketplace (agent-hiring + nlocktime-jobs), bid/claim/complete/settle flow,  
+> callback relay, auto-expiry cron, My Jobs dashboard, x402 Gateway page, live wallet widget.
+
+**Original Timeline:** Jun 7+ (after Phase 3 launch and stabilization)  
+**Actual delivery:** 2026-03-28 (shipped ahead of schedule)
 
 **Philosophy:** Phase 3 is production-ready as-is. These are optional enhancements that improve robustness, fairness, and resilience. Implement when you have real-world consensus data to tune parameters and detect actual attack vectors.
 
