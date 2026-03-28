@@ -29,6 +29,8 @@ export function SidebarRight() {
   const [walletStats, setWalletStats] = useState<WalletStats | null>(null)
   const [walletLoading, setWalletLoading] = useState(false)
   const [showFundModal, setShowFundModal] = useState(false)
+  const [onchainSats, setOnchainSats] = useState<number | null>(null)
+  const [addrCopied, setAddrCopied] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -75,6 +77,26 @@ export function SidebarRight() {
     return () => { cancelled = true }
   }, [isLoggedIn, agent?.id])
 
+  // Fetch on-chain balance from WhatsOnChain once address is known
+  useEffect(() => {
+    const addr = walletStats?.bsvAddress
+    if (!addr) return
+    let cancelled = false
+    const fetchBalance = async () => {
+      try {
+        const res = await fetch(`https://api.whatsonchain.com/v1/bsv/main/address/${addr}/balance`)
+        if (!res.ok) return
+        const json = await res.json()
+        // WoC returns { confirmed: <sats>, unconfirmed: <sats> }
+        if (!cancelled && typeof json.confirmed === 'number') {
+          setOnchainSats(json.confirmed + (json.unconfirmed || 0))
+        }
+      } catch { /* network error — silently fail, don't break widget */ }
+    }
+    fetchBalance()
+    return () => { cancelled = true }
+  }, [walletStats?.bsvAddress])
+
   return (
     <aside className="sidebar-right">
       {/* Wallet */}
@@ -91,12 +113,19 @@ export function SidebarRight() {
             const stakedBsv = stats ? (stats.stakedSats / 1e8).toFixed(4) : '0.0000'
             const x402Count = stats ? stats.x402Count.toLocaleString() : '0'
             const tracesSold = stats ? stats.tracesSold : 0
+            const balanceBsv = onchainSats !== null ? (onchainSats / 1e8).toFixed(4) : null
             return (
               <>
                 <div className="wallet-address">{addrDisplay}</div>
                 <div className="wallet-balance">
-                  <span className="balance-num">{stakedBsv}</span>
-                  <span className="balance-unit">BSV staked</span>
+                  {balanceBsv !== null ? (
+                    <>
+                      <span className="balance-num">{balanceBsv}</span>
+                      <span className="balance-unit">BSV</span>
+                    </>
+                  ) : (
+                    <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>fetching balance…</span>
+                  )}
                 </div>
                 <div className="wallet-stats">
                   <div className="wallet-stat"><div className="wstat-label">Earned (7d)</div><div className="wstat-value green">+{earned7dBsv} BSV</div></div>
@@ -141,11 +170,15 @@ export function SidebarRight() {
               {walletStats.bsvAddress}
             </div>
             <button
-              onClick={() => { navigator.clipboard.writeText(walletStats.bsvAddress!); }}
+              onClick={() => {
+                navigator.clipboard.writeText(walletStats.bsvAddress!)
+                setAddrCopied(true)
+                setTimeout(() => setAddrCopied(false), 2000)
+              }}
               className="nav-btn btn-ghost"
               style={{ width: '100%', fontSize: '0.8rem' }}
             >
-              Copy Address
+              {addrCopied ? '✓ Copied!' : 'Copy Address'}
             </button>
           </div>
         </div>
