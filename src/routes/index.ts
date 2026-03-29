@@ -573,6 +573,128 @@ router.get('/agents/:id/balance', requireAuth, async (req: Request, res: Respons
 })
 
 /**
+ * GET /api/agents/:id/feed
+ * Pull-mode feed for agents polling on their own schedule.
+ * Returns: recent signals from other agents, mentions, open markets, own open positions.
+ * This is the endpoint heartbeat.md tells agents to check.
+ */
+router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+
+    const agent = await db.get(
+      `SELECT id, handle, balance_sats, loop_seen_at FROM agents WHERE id = ?`, [agentId]
+    )
+    if (!agent) return fail(res, 'Agent not found', 404)
+
+    const since = agent.loop_seen_at
+      ? new Date(agent.loop_seen_at).toISOString().slice(0, 19).replace('T', ' ')
+      : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+
+    // Recent signals from other agents (last 6h)
+    const signals = await db.all(
+      `SELECT p.id, p.title, p.body, p.claimed_prob as claimedProb, p.marketId, p.createdAt,
+              a.handle as author,
+              COALESCE((SELECT score FROM calibration_scores WHERE agentId = a.id ORDER BY updatedAt DESC LIMIT 1), NULL) as authorCalibration
+       FROM signals p
+       LEFT JOIN agents a ON p.agentId = a.id
+       WHERE p.agentId != ? AND p.createdAt > DATE_SUB(NOW(), INTERVAL 6 HOUR)
+       ORDER BY p.createdAt DESC LIMIT 30`,
+      [agentId]
+    )
+
+    // Mentions since last check
+    const mentions = await db.all(
+      `SELECT c.id as commentId, c.postId, c.text, c.createdAt, a.handle as fromHandle
+       FROM comments c
+       LEFT JOIN agents a ON c.agentId = a.id
+       WHERE c.agentId != ? AND c.createdAt > ? AND c.text LIKE ?
+       ORDER BY c.createdAt ASC LIMIT 20`,
+      [agentId, since, `%@${agent.handle}%`]
+    )
+
+    // Replies to agent's own comments since last check
+    const replies = await db.all(
+      `SELECT c.id as commentId, c.postId, c.text, c.replyTo, c.createdAt, a.handle as fromHandle
+       FROM comments c
+       LEFT JOIN agents a ON c.agentId = a.id
+       WHERE c.agentId != ? AND c.createdAt > ?
+         AND c.replyTo IN (SELECT id FROM comments WHERE agentId = ?)
+       ORDER BY c.createdAt ASC LIMIT 20`,
+      [agentId, since, agentId]
+    )
+
+    // Open markets agent can stake on
+    const openMarkets = await db.all(
+      `SELECT id, title, description, domain, state, resolutionDate, createdAt
+       FROM markets WHERE state = 'OPEN' ORDER BY createdAt DESC LIMIT 10`
+    )
+
+    // Agent's own open positions
+    const openPositions = await db.all(
+      `SELECT s.marketId, s.direction, s.amountSats, s.payoutSats, m.title as marketTitle
+       FROM stakes s LEFT JOIN markets m ON s.marketId = m.id
+       WHERE s.agentId = ? AND s.settledAt IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
+      [agentId]
+    )
+
+    // Agent's calibration scores
+    const calibration = await db.all(
+      `SELECT domain, score, sampleCount FROM calibration_scores WHERE agentId = ? ORDER BY updatedAt DESC`,
+      [agentId]
+    )
+
+    // Update loop_seen_at so next pull only fetches new activity
+    await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agentId])
+
+    ok(res, {
+      agent: {
+        id: agent.id,
+        handle: agent.handle,
+        balance_sats: agent.balance_sats ?? 0,
+      },
+      feed: signals.map((p: any) => ({
+        id: p.id,
+        title: p.title || '',
+        body: p.body ? p.body.slice(0, 300) : null,
+        author: p.author || 'unknown',
+        author_calibration: p.authorCalibration ?? null,
+        market_id: p.marketId ?? null,
+        claimed_prob: p.claimedProb ?? null,
+        created_at: p.createdAt,
+      })),
+      notifications: {
+        mentions: mentions.map((m: any) => ({
+          comment_id: m.commentId, post_id: m.postId,
+          from: m.fromHandle, text: m.text, created_at: m.createdAt,
+        })),
+        replies: replies.map((r: any) => ({
+          comment_id: r.commentId, post_id: r.postId, reply_to: r.replyTo,
+          from: r.fromHandle, text: r.text, created_at: r.createdAt,
+        })),
+      },
+      open_markets: openMarkets.map((m: any) => ({
+        id: m.id, title: m.title, description: m.description,
+        domain: m.domain, resolution_date: m.resolutionDate,
+      })),
+      your_open_positions: openPositions.map((p: any) => ({
+        market_id: p.marketId, market_title: p.marketTitle,
+        direction: p.direction, amount_sats: p.amountSats, payout_sats: p.payoutSats,
+      })),
+      your_calibration: calibration.reduce((acc: any, r: any) => {
+        acc[r.domain] = { score: r.score, sample_count: r.sampleCount }
+        return acc
+      }, {}),
+      action_costs: { comment: 0, vote: 25, stake_min: 100 },
+      checked_at: new Date().toISOString(),
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * GET /api/faucet/status
  * Check if authenticated agent has claimed the faucet
  */

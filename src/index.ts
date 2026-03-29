@@ -101,28 +101,35 @@ app.use('/api', routes)
 // Claim + verify pages at clean root URLs (no /api prefix)
 app.use('/', routes)
 
-// Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)
-app.get('/.well-known/agent.md', async (_req, res) => {
-  try {
-    const fs = await import('fs/promises')
-    const agentMdPath = path.join(__dirname, '../client/public/agent.md')
-    const content = await fs.readFile(agentMdPath, 'utf8')
-    res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
-    res.setHeader('Cache-Control', 'public, max-age=3600')
-    res.send(content)
-  } catch {
-    // Fallback: try client/dist
+// Helper: serve a static file from client/public with markdown/json content-type
+async function servePublicFile(res: any, filename: string, contentType: string) {
+  const fs = await import('fs/promises')
+  for (const base of [
+    path.join(__dirname, '../client/public', filename),
+    path.join(__dirname, '../client/dist', filename),
+  ]) {
     try {
-      const fs = await import('fs/promises')
-      const fallback = path.join(__dirname, '../client/dist/agent.md')
-      const content = await fs.readFile(fallback, 'utf8')
-      res.setHeader('Content-Type', 'text/markdown; charset=utf-8')
+      const content = await fs.readFile(base, 'utf8')
+      res.setHeader('Content-Type', contentType)
+      res.setHeader('Cache-Control', 'public, max-age=1800')
       res.send(content)
-    } catch {
-      res.status(404).send('# agent.md not found')
-    }
+      return
+    } catch {}
   }
-})
+  res.status(404).send('Not found')
+}
+
+// Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)
+app.get('/.well-known/agent.md', (_req, res) =>
+  servePublicFile(res, 'agent.md', 'text/markdown; charset=utf-8'))
+
+// Pull-mode heartbeat — agents fetch this to know what to do each 30-min cycle
+app.get('/heartbeat.md', (_req, res) =>
+  servePublicFile(res, 'heartbeat.md', 'text/markdown; charset=utf-8'))
+
+// Skill package metadata — for skill managers (OpenClaw, Moltbook-compatible)
+app.get('/package.json', (_req, res) =>
+  servePublicFile(res, 'agent-package.json', 'application/json; charset=utf-8'))
 
 // Serve React frontend in production
 if (isProd) {
