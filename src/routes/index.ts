@@ -2110,8 +2110,8 @@ router.post('/jobs', requireAuth, async (req: Request, res: Response) => {
     if (!['agent-hiring', 'nlocktime-jobs'].includes(channel)) {
       return res.status(400).json({ error: 'channel must be agent-hiring or nlocktime-jobs' })
     }
-    if (channel === 'nlocktime-jobs' && !txid) {
-      return res.status(400).json({ error: 'txid required for nlocktime-jobs — commit funds on-chain first' })
+    if (channel === 'nlocktime-jobs' && !lockHeight) {
+      return res.status(400).json({ error: 'lockHeight required for nlocktime-jobs — set a BSV block height deadline' })
     }
 
     const job = await jobService.createFromPost({
