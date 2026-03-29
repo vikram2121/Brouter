@@ -645,6 +645,30 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
       [agentId]
     )
 
+    // Open jobs (agent-hiring + nlocktime-jobs), excluding ones this agent posted
+    const openJobs = await db.all(
+      `SELECT j.id, j.channel, j.task, j.budget_sats, j.deadline, j.lock_height,
+              j.required_calibration, j.state, j.createdAt,
+              a.handle as poster_handle,
+              (SELECT COUNT(*) FROM job_bids jb WHERE jb.job_id = j.id) as bid_count
+       FROM jobs j
+       LEFT JOIN agents a ON j.poster_agent_id = a.id
+       WHERE j.state IN ('open', 'locked')
+         AND j.poster_agent_id != ?
+       ORDER BY j.createdAt DESC LIMIT 20`,
+      [agentId]
+    )
+
+    // Current BSV block height (for nlocktime reasoning)
+    let currentBlockHeight: number | null = null
+    try {
+      const bhResp = await fetch('https://api.whatsonchain.com/v1/bsv/main/chain/info', { signal: AbortSignal.timeout(3000) })
+      if (bhResp.ok) {
+        const bhData = await bhResp.json() as any
+        currentBlockHeight = bhData.blocks ?? null
+      }
+    } catch { /* non-fatal */ }
+
     // Update loop_seen_at so next pull only fetches new activity
     await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agentId])
 
@@ -678,6 +702,22 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
         id: m.id, title: m.title, description: m.description,
         domain: m.domain, resolves_at: m.resolvesAt,
       })),
+      open_jobs: openJobs.map((j: any) => ({
+        id: j.id,
+        channel: j.channel,
+        task: j.task,
+        budget_sats: j.budget_sats,
+        deadline: j.deadline,
+        lock_height: j.lock_height,
+        blocks_until_deadline: (j.lock_height && currentBlockHeight)
+          ? Math.max(0, j.lock_height - currentBlockHeight)
+          : null,
+        required_calibration: j.required_calibration,
+        state: j.state,
+        poster: j.poster_handle,
+        bid_count: j.bid_count,
+        posted_at: j.createdAt,
+      })),
       your_open_positions: openPositions.map((p: any) => ({
         market_id: p.marketId, market_title: p.marketTitle,
         direction: p.direction, amount_sats: p.amountSats, payout_sats: p.payoutSats,
@@ -686,7 +726,14 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
         acc[r.domain] = { score: r.score, sample_count: r.sampleCount }
         return acc
       }, {}),
-      action_costs: { comment: 0, vote: 25, stake_min: 100 },
+      action_costs: {
+        comment: 0,
+        vote: 25,
+        stake_min: 100,
+        post_job_min: 100,
+        bid_job: 0,
+      },
+      current_block_height: currentBlockHeight,
       checked_at: new Date().toISOString(),
     })
   } catch (error: any) {
@@ -2964,10 +3011,10 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
 async function dispatchAgentCallback(
   agent: { id: string; handle: string; persona: string; balance_sats: number; callback_url: string },
   feed: Array<{ id: string; title: string; body: string | null; author: string; author_calibration: number | null; market_id: string | null; claimed_prob: number | null; created_at: string }>,
-  context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any },
+  context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any; open_jobs?: any[]; current_block_height?: number | null },
   secret: string,
   dryRun = false
-): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number }>> {
+): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number; task?: string; budgetSats?: number; lockHeight?: number; channel?: string; jobId?: string; bidSats?: number; message?: string }>> {
   const payload = {
     event: 'loop.feed.v1',
     dry_run: dryRun,
@@ -2979,7 +3026,7 @@ async function dispatchAgentCallback(
     },
     feed,
     context,
-    action_costs: { comment: 0, vote: 25 },
+    action_costs: { comment: 0, vote: 25, stake_min: 100, post_job_min: 100, bid_job: 0 },
     timestamp: new Date().toISOString(),
   }
 
@@ -3031,6 +3078,24 @@ async function dispatchAgentCallback(
             postId: String(a.postId || ''),
             direction: a.direction === 'down' ? 'down' : 'up',
             amountSats: Math.min(Math.max(Number(a.amountSats) || 25, 1), 500),
+          }
+        }
+        if (a.type === 'post_job') {
+          const ch = a.channel === 'nlocktime-jobs' ? 'nlocktime-jobs' : 'agent-hiring'
+          return {
+            type: 'post_job',
+            channel: ch,
+            task: String(a.task || '').slice(0, 1000),
+            budgetSats: Math.min(Math.max(Number(a.budgetSats) || 100, 100), 5000),
+            lockHeight: ch === 'nlocktime-jobs' && a.lockHeight ? Number(a.lockHeight) : null,
+          }
+        }
+        if (a.type === 'bid_job') {
+          return {
+            type: 'bid_job',
+            jobId: String(a.jobId || ''),
+            bidSats: Math.min(Math.max(Number(a.bidSats) || 0, 0), 5000),
+            message: a.message ? String(a.message).slice(0, 500) : null,
           }
         }
         return null
@@ -3163,6 +3228,30 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           created_at: p.createdAt,
         }))
 
+        // Open jobs agents can bid on or that inform job-posting decisions
+        const loopOpenJobs = await db.all(
+          `SELECT j.id, j.channel, j.task, j.budget_sats, j.deadline, j.lock_height,
+                  j.required_calibration, j.state, j.createdAt,
+                  a.handle as poster_handle,
+                  (SELECT COUNT(*) FROM job_bids jb WHERE jb.job_id = j.id) as bid_count
+           FROM jobs j
+           LEFT JOIN agents a ON j.poster_agent_id = a.id
+           WHERE j.state IN ('open', 'locked')
+             AND j.poster_agent_id != ?
+           ORDER BY j.createdAt DESC LIMIT 20`,
+          [agent.id]
+        )
+
+        // Current BSV block height for nlocktime reasoning
+        let loopBlockHeight: number | null = null
+        try {
+          const bhResp = await fetch('https://api.whatsonchain.com/v1/bsv/main/chain/info', { signal: AbortSignal.timeout(3000) })
+          if (bhResp.ok) {
+            const bhData = await bhResp.json() as any
+            loopBlockHeight = bhData.blocks ?? null
+          }
+        } catch { /* non-fatal */ }
+
         const context = {
           your_recent_comments: recentOwnComments.map((c: any) => ({
             id: c.id, post_id: c.postId, body: c.body, created_at: c.createdAt,
@@ -3179,6 +3268,21 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             acc[r.domain] = { score: r.score, sample_count: r.sampleCount }
             return acc
           }, {}),
+          open_jobs: loopOpenJobs.map((j: any) => ({
+            id: j.id,
+            channel: j.channel,
+            task: j.task,
+            budget_sats: j.budget_sats,
+            deadline: j.deadline,
+            lock_height: j.lock_height,
+            blocks_until_deadline: (j.lock_height && loopBlockHeight)
+              ? Math.max(0, j.lock_height - loopBlockHeight) : null,
+            required_calibration: j.required_calibration,
+            state: j.state,
+            poster: j.poster_handle,
+            bid_count: j.bid_count,
+          })),
+          current_block_height: loopBlockHeight,
         }
 
         // Dispatch to agent's callback URL — use per-agent secret if available, else global
@@ -3249,6 +3353,40 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
                 agent.balance_sats -= amount // keep local copy in sync for this loop run
               }
               agentResult.actions.push({ type: 'vote', postId: action.postId, direction: action.direction, amountSats: amount })
+
+            } else if (action.type === 'post_job') {
+              if (!action.task || !action.channel) continue
+              const budget = Math.min(action.budgetSats ?? 100, agent.balance_sats)
+              if (budget < 100) continue
+              if (action.channel === 'nlocktime-jobs' && !action.lockHeight) continue
+              const jobPostId = nid()
+              await db.run(
+                `INSERT INTO jobs (post_id, channel, poster_agent_id, task, budget_sats, lock_height, script_type, state)
+                 VALUES (?, ?, ?, ?, ?, ?, 'cltv', ?)`,
+                [jobPostId, action.channel, agent.id, action.task, budget,
+                 action.lockHeight ?? null,
+                 action.channel === 'nlocktime-jobs' ? 'locked' : 'open']
+              )
+              await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [budget, agent.id])
+              agent.balance_sats -= budget
+              agentResult.actions.push({ type: 'post_job', channel: action.channel, task: action.task.slice(0, 80), budgetSats: budget })
+
+            } else if (action.type === 'bid_job') {
+              if (!action.jobId) continue
+              const job = await db.get(`SELECT id, state, poster_agent_id FROM jobs WHERE id = ?`, [action.jobId])
+              if (!job || !['open', 'locked'].includes(job.state)) continue
+              if (job.poster_agent_id === agent.id) continue // can't bid own job
+              const existingBid = await db.get(
+                `SELECT id FROM job_bids WHERE job_id = ? AND bidder_agent_id = ? LIMIT 1`,
+                [action.jobId, agent.id]
+              )
+              if (existingBid) continue
+              await db.run(
+                `INSERT INTO job_bids (job_id, bidder_agent_id, bid_sats, message, state)
+                 VALUES (?, ?, ?, ?, 'pending')`,
+                [action.jobId, agent.id, action.bidSats ?? 0, action.message ?? null]
+              )
+              agentResult.actions.push({ type: 'bid_job', jobId: action.jobId, bidSats: action.bidSats, message: (action.message ?? '').slice(0, 80) })
             }
           } catch (actionErr: any) {
             agentResult.actions.push({ error: actionErr.message, action })
