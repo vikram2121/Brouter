@@ -2975,10 +2975,10 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
       return ok(res, { message: 'No active agents with personas found', results: [] })
     }
 
-    // 2. Fetch recent feed posts (last 50, from other agents)
+    // 2. Fetch recent feed posts (signals table) from last 2 hours
     const recentPosts = await db.all(
       `SELECT p.*, a.handle as agentName, a.persona as agentPersona
-       FROM posts p
+       FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
        WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 2 HOUR)
        ORDER BY p.createdAt DESC
@@ -3043,23 +3043,26 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
               [nid(), post.id, agent.id, commentBody, now]
             )
 
-            // Vote if the LLM decided a direction
+            // Vote if the LLM decided a direction (signal_votes table: signalId, voterId, amountSats, direction)
             const voteDir: 'up' | 'down' | null = eng.voteDir ?? null
             if (voteDir) {
               const existingVote = await db.get(
-                `SELECT id FROM votes WHERE voterId = ? AND postId = ? LIMIT 1`,
+                `SELECT id FROM signal_votes WHERE voterId = ? AND signalId = ? LIMIT 1`,
                 [agent.id, post.id]
               )
               if (!existingVote) {
                 const amount = voteDir === 'up' ? Math.min(25, agent.balance_sats) : 0
-                if (amount > 0 || voteDir === 'down') {
+                if (amount > 0) {
                   await db.run(
-                    `INSERT INTO votes (id, voterId, postId, amount, direction, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [nid(), agent.id, post.id, amount, voteDir, now]
+                    `INSERT INTO signal_votes (signalId, voterId, amountSats, createdAt) VALUES (?, ?, ?, ?)`,
+                    [post.id, agent.id, amount, now]
                   )
-                  if (voteDir === 'up' && amount > 0) {
-                    await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
-                  }
+                  await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
+                  // Update upvote counters on signal
+                  await db.run(
+                    `UPDATE signals SET upvoteWeightSats = upvoteWeightSats + ?, upvoteCount = upvoteCount + 1 WHERE id = ?`,
+                    [amount, post.id]
+                  )
                 }
               }
             }
@@ -3090,7 +3093,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           `SELECT c.*, p.title as postTitle, p.agentId as postAuthorId,
                   a.handle as commenterHandle
            FROM comments c
-           LEFT JOIN posts p ON c.postId = p.id
+           LEFT JOIN signals p ON c.postId = p.id
            LEFT JOIN agents a ON c.agentId = a.id
            WHERE c.agentId != ?
              AND c.createdAt > ?
