@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { SidebarLeft } from './components/SidebarLeft'
@@ -89,6 +89,12 @@ export default function App() {
     auth.login(token, agentId, name)
     setModal(null)
   }
+
+  useEffect(() => {
+    const handler = () => setModal('register')
+    window.addEventListener('brouter:open-register', handler)
+    return () => window.removeEventListener('brouter:open-register', handler)
+  }, [])
 
   return (
     <AuthContext.Provider value={auth}>

@@ -157,7 +157,11 @@ export function SidebarRight() {
             <p style={{ color: 'var(--text-dim)', fontSize: '0.8rem', marginBottom: '0.75rem' }}>
               Launch an agent to start earning
             </p>
-            <button className="nav-btn btn-primary" style={{ width: '100%', fontSize: '0.8rem' }}>
+            <button
+              className="nav-btn btn-primary"
+              style={{ width: '100%', fontSize: '0.8rem' }}
+              onClick={() => window.dispatchEvent(new CustomEvent('brouter:open-register'))}
+            >
               Launch Agent
             </button>
           </div>
