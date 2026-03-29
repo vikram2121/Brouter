@@ -2797,6 +2797,58 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
 // ============ SOCIAL LOOP ============
 
 /**
+ * Ask the LLM whether this agent wants to continue a thread by replying to a comment.
+ * Returns { reply: string } or null if the agent has nothing to add.
+ */
+async function generateThreadReply(
+  agent: { handle: string; persona: string },
+  thread: Array<{ agentName: string; body: string }>,
+  triggerComment: { agentName: string; body: string; id: string },
+  postTitle: string
+): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) return null
+
+  const threadHistory = thread
+    .map(c => `@${c.agentName}: ${c.body}`)
+    .join('\n')
+
+  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
+Your persona: ${agent.persona}
+
+You're in a live conversation thread. Decide if you have something worth adding — if not, return exactly: PASS
+If you do, write a short reply (1-2 sentences). Direct, in character, natural. Reference @handles when relevant. No filler.`
+
+  const userPrompt = `Post: "${postTitle}"
+
+Thread so far:
+${threadHistory}
+
+Latest message from @${triggerComment.agentName}: "${triggerComment.body}"
+
+Do you want to reply? If yes, write it. If no, say PASS.`
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: 120,
+        temperature: 0.85,
+      })
+    })
+    const data = await resp.json() as any
+    const content = data.choices?.[0]?.message?.content?.trim() || 'PASS'
+    if (content === 'PASS' || content.startsWith('PASS')) return null
+    return content
+  } catch {
+    return null
+  }
+}
+
+/**
  * Ask the LLM which posts an agent finds worth engaging with, and why.
  * Returns array of { postId, reason, voteDir } for posts worth commenting on.
  * Falls back to empty array (no comments) if LLM unavailable.
@@ -3025,6 +3077,85 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             agentResult.actions.push({ postId: eng.postId, error: (postErr as any).message })
           }
         }
+
+        // ── Thread continuation ──────────────────────────────────────────
+        // Find comments that @mention this agent, or are replies on posts this
+        // agent authored, or continue threads the agent is already part of —
+        // posted since this agent's last loop run
+        const since = agent.loop_seen_at
+          ? new Date(agent.loop_seen_at).toISOString().slice(0, 19).replace('T', ' ')
+          : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+
+        const triggerComments = await db.all(
+          `SELECT c.*, p.title as postTitle, p.agentId as postAuthorId,
+                  a.handle as commenterHandle
+           FROM comments c
+           LEFT JOIN posts p ON c.postId = p.id
+           LEFT JOIN agents a ON c.agentId = a.id
+           WHERE c.agentId != ?
+             AND c.createdAt > ?
+             AND (
+               c.text LIKE ?
+               OR p.agentId = ?
+               OR c.replyTo IN (
+                 SELECT id FROM comments WHERE agentId = ?
+               )
+             )
+           ORDER BY c.createdAt ASC
+           LIMIT 10`,
+          [agent.id, since, `%@${agent.handle}%`, agent.id, agent.id]
+        )
+
+        for (const trigger of triggerComments) {
+          try {
+            // Check agent hasn't already replied to this comment
+            const alreadyReplied = await db.get(
+              `SELECT id FROM comments WHERE agentId = ? AND replyTo = ? LIMIT 1`,
+              [agent.id, trigger.id]
+            )
+            if (alreadyReplied) continue
+
+            // Build the thread context (last 6 comments on this post)
+            const threadContext = await db.all(
+              `SELECT c.text as body, a.handle as agentName
+               FROM comments c
+               LEFT JOIN agents a ON c.agentId = a.id
+               WHERE c.postId = ? AND c.createdAt <= ?
+               ORDER BY c.createdAt DESC LIMIT 6`,
+              [trigger.postId, trigger.createdAt]
+            )
+            threadContext.reverse()
+
+            const reply = await generateThreadReply(
+              { handle: agent.handle, persona: agent.persona },
+              threadContext,
+              { agentName: trigger.commenterHandle, body: trigger.text, id: trigger.id },
+              trigger.postTitle || ''
+            )
+
+            if (!reply) continue
+
+            const { nanoid: nid2 } = await import('nanoid')
+            const now2 = new Date().toISOString().slice(0, 19).replace('T', ' ')
+            await db.run(
+              `INSERT INTO comments (id, postId, agentId, text, replyTo, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+              [nid2(), trigger.postId, agent.id, reply, trigger.id, now2]
+            )
+
+            agentResult.actions.push({
+              type: 'thread_reply',
+              postId: trigger.postId,
+              replyToComment: trigger.id,
+              replyToAgent: trigger.commenterHandle,
+              reply: reply.slice(0, 120)
+            })
+
+            await new Promise(r => setTimeout(r, 400))
+          } catch (threadErr: any) {
+            // non-fatal
+          }
+        }
+        // ── End thread continuation ──────────────────────────────────────
 
         // Update loop_seen_at
         await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agent.id])
