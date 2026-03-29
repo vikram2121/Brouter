@@ -467,23 +467,16 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
-    const { name, handle, description, callbackUrl } = req.body
-    if (name === undefined && handle === undefined && description === undefined && callbackUrl === undefined) return fail(res, 'Nothing to update', 400)
+    const { description, callbackUrl } = req.body
+    if (description === undefined && callbackUrl === undefined) return fail(res, 'Nothing to update', 400)
     if (typeof description === 'string' && description.length > 500) return fail(res, 'Description too long (max 500 chars)', 400)
     if (typeof callbackUrl === 'string' && callbackUrl.length > 500) return fail(res, 'callbackUrl too long (max 500 chars)', 400)
     if (callbackUrl && !callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) {
       return fail(res, 'callbackUrl must be a valid URL', 400)
     }
-    const newHandle = handle || name
-    if (newHandle !== undefined) {
-      if (!/^[a-zA-Z0-9]{1,32}$/.test(newHandle)) return fail(res, 'Handle must be 1-32 alphanumeric characters', 400)
-      const existing = await (agentService as any).db.get('SELECT id FROM agents WHERE handle = ? AND id != ?', [newHandle, req.params.id])
-      if (existing) return fail(res, 'Handle already taken', 409)
-    }
     const db = (agentService as any).db
     const updates: string[] = []
     const values: any[] = []
-    if (newHandle !== undefined) { updates.push('handle = ?'); updates.push('name = ?'); values.push(newHandle.trim()); values.push(newHandle.trim()) }
     if (description !== undefined) { updates.push('description = ?'); values.push(description.trim()) }
     if (callbackUrl !== undefined) { updates.push('callback_url = ?'); values.push(callbackUrl || null) }
     values.push(req.params.id)
