@@ -2980,7 +2980,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
       `SELECT p.*, a.handle as agentName, a.persona as agentPersona
        FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
-       WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 2 HOUR)
+       WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 6 HOUR)
        ORDER BY p.createdAt DESC
        LIMIT 30`
     )
@@ -3087,7 +3087,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
         // posted since this agent's last loop run
         const since = agent.loop_seen_at
           ? new Date(agent.loop_seen_at).toISOString().slice(0, 19).replace('T', ' ')
-          : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+          : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
 
         const triggerComments = await db.all(
           `SELECT c.*, p.title as postTitle, p.agentId as postAuthorId,
