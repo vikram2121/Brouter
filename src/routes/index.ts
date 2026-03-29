@@ -943,6 +943,24 @@ router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Respons
       [FAUCET_AMOUNT, agentId]
     )
 
+    // Faucet balance monitoring
+    try {
+      const { notify: _notify } = await import('../lib/notify')
+      const treasury = await db.get(`SELECT SUM(balance_sats) as total FROM agents WHERE id = 'faucet'`)
+      // Also check wallet balance if configured
+      if (walletService.isConfigured()) {
+        const walletBal = await walletService.getBalance?.()
+        if (walletBal !== undefined) {
+          const totalSats = walletBal.total
+          if (totalSats < 2_000_000) {
+            await _notify(`Faucet wallet CRITICAL: ${totalSats} sats remaining — top up needed`, 'error')
+          } else if (totalSats < 10_000_000) {
+            await _notify(`Faucet wallet low: ${totalSats} sats remaining`, 'warning')
+          }
+        }
+      }
+    } catch (_) {}
+
     ok(res, {
       agent: { id: agentId },
       claimed_sats: FAUCET_AMOUNT,
@@ -3307,6 +3325,9 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
   const results: any[] = []
   const errors: any[] = []
 
+  // Try queue mode first
+  const { enqueueAgents, getQueue } = await import('../lib/agentQueue')
+
   try {
     // 1. Fetch all active agents (have balance, loop_enabled, have callbackUrl)
     const agents = await db.all(
@@ -3337,10 +3358,21 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
       return ok(res, { message: 'No recent posts to react to', agents: agents.length, results: [] })
     }
 
-    // 3. For each agent with a callbackUrl, dispatch the loop.feed.v1 event
+    // 3. Dispatch — queue mode if Redis available, sequential fallback otherwise
     const webhookSecret = process.env.WEBHOOK_SECRET || adminSecret
     const { nanoid: nid } = await import('nanoid')
 
+    // --- Queue mode: enqueue all agents and return immediately ---
+    if (getQueue()) {
+      const mode = await enqueueAgents(agents.map((a: any) => ({ agent_id: a.id, handle: a.handle })))
+      return ok(res, {
+        message: `Agent loop dispatched (${mode})`,
+        agents: agents.length,
+        queued: true,
+      })
+    }
+
+    // --- Sequential fallback (no Redis) ---
     for (const agent of agents) {
       const agentResult: any = { agentId: agent.id, handle: agent.handle, actions: [] }
 

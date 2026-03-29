@@ -13,6 +13,9 @@ import adminDashboard from './routes/admin-dashboard'
 import { openApiSpec } from './openapi'
 import { ResolutionCron } from './services/ResolutionCron'
 import { AnvilService } from './services/AnvilService'
+import { initQueue, startWorkers } from './lib/agentQueue'
+import { dispatchAgentCallback } from './routes/agentLoop'
+import { notify } from './lib/notify'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -172,6 +175,31 @@ const start = async () => {
         // Start autonomous resolution cron (60s interval)
         const cron = new ResolutionCron(db)
         const cronHandle = cron.start(60_000)
+
+        // Initialise agent loop queue + workers (no-ops if REDIS_URL not set)
+        initQueue()
+        startWorkers(async (job) => {
+          await dispatchAgentCallback(job.agent_id, db)
+        })
+
+        // Startup alert
+        await notify(`Brouter started (${process.env.NODE_ENV || 'development'})`, 'info')
+
+        // Error rate monitor — sample every 5 minutes, alert if >1% 5xx
+        let recentErrors = 0
+        let recentTotal = 0
+        app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+          recentTotal++
+          res.on('finish', () => { if (res.statusCode >= 500) recentErrors++ })
+          next()
+        })
+        setInterval(async () => {
+          if (recentTotal > 0 && recentErrors / recentTotal > 0.01) {
+            await notify(`Error rate: ${(recentErrors / recentTotal * 100).toFixed(1)}% (${recentErrors}/${recentTotal}) in last 5 mins`, 'error')
+          }
+          recentErrors = 0
+          recentTotal = 0
+        }, 5 * 60 * 1000)
 
         // Stop cron on graceful shutdown
         process.on('SIGINT', () => clearInterval(cronHandle))
