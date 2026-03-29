@@ -349,10 +349,18 @@ router.post('/auth/verify', authChallengeLimiter, async (req: Request, res: Resp
  */
 router.post('/agents/register', async (req: Request, res: Response) => {
   try {
-    const { name, publicKey, description, bsvAddress, persona } = req.body
+    const { name, publicKey, description, bsvAddress, persona, callbackUrl, loopEnabled } = req.body
     const ip = getIp(req)
 
+    if (callbackUrl && typeof callbackUrl === 'string' &&
+        !callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) {
+      return fail(res, 'callbackUrl must be a valid URL', 400)
+    }
+
     const agent = await agentService.register({ name, publicKey, description, bsvAddress, ip })
+
+    const { randomBytes, createHash } = await import('crypto')
+    const { nanoid: nid } = await import('nanoid')
 
     // Store persona if provided
     if (persona && typeof persona === 'string') {
@@ -360,11 +368,22 @@ router.post('/agents/register', async (req: Request, res: Response) => {
       await db.run('UPDATE agents SET persona = ? WHERE id = ?', [personaTrimmed, agent.id])
     }
 
+    // Store callbackUrl + generate per-agent callback_secret
+    let plaintextSecret: string | null = null
+    if (callbackUrl && typeof callbackUrl === 'string') {
+      plaintextSecret = randomBytes(32).toString('hex')
+      const hashedSecret = createHash('sha256').update(plaintextSecret).digest('hex')
+      const loopEnabledVal = loopEnabled !== false ? 1 : 0
+      await db.run(
+        'UPDATE agents SET callback_url = ?, callback_secret = ?, loop_enabled = ? WHERE id = ?',
+        [callbackUrl.slice(0, 500), hashedSecret, loopEnabledVal, agent.id]
+      )
+    }
+
     // Issue a token and store it in auth_tokens so validateToken can find it
     const token = await authService.createToken(agent.id)
 
     // Generate claim token for X verification (optional — gives ✓ badge)
-    const { nanoid: nid } = await import('nanoid')
     const claimToken = nid(24)
     await db.run('UPDATE agents SET claimToken = ? WHERE id = ?', [claimToken, agent.id])
     const claimUrl = `https://brouter.ai/claim/${claimToken}`
@@ -385,6 +404,10 @@ router.post('/agents/register', async (req: Request, res: Response) => {
 
     ok(res, {
       agent, token, anvil: anvilInfo,
+      ...(plaintextSecret ? {
+        callback_secret: plaintextSecret,
+        callback_note: 'Store this secret — it is shown once. Use it to verify X-Brouter-Signature on incoming loop calls.',
+      } : {}),
       verification: {
         claim_url: claimUrl,
         tweet_template: tweetTemplate,
@@ -473,8 +496,8 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
-    const { description, callbackUrl, persona } = req.body
-    if (description === undefined && callbackUrl === undefined && persona === undefined) return fail(res, 'Nothing to update', 400)
+    const { description, callbackUrl, persona, loopEnabled } = req.body
+    if (description === undefined && callbackUrl === undefined && persona === undefined && loopEnabled === undefined) return fail(res, 'Nothing to update', 400)
     if (typeof description === 'string' && description.length > 500) return fail(res, 'Description too long (max 500 chars)', 400)
     if (typeof callbackUrl === 'string' && callbackUrl.length > 500) return fail(res, 'callbackUrl too long (max 500 chars)', 400)
     if (typeof persona === 'string' && persona.length > 1000) return fail(res, 'Persona too long (max 1000 chars)', 400)
@@ -485,12 +508,28 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
     const updates: string[] = []
     const values: any[] = []
     if (description !== undefined) { updates.push('description = ?'); values.push(description.trim()) }
-    if (callbackUrl !== undefined) { updates.push('callback_url = ?'); values.push(callbackUrl || null) }
     if (persona !== undefined) { updates.push('persona = ?'); values.push(persona.trim() || null) }
+    if (loopEnabled !== undefined) { updates.push('loop_enabled = ?'); values.push(loopEnabled ? 1 : 0) }
+
+    // Setting a new callbackUrl: generate a fresh per-agent secret
+    let plaintextSecret: string | null = null
+    if (callbackUrl !== undefined) {
+      updates.push('callback_url = ?'); values.push(callbackUrl || null)
+      if (callbackUrl) {
+        const { randomBytes, createHash } = await import('crypto')
+        plaintextSecret = randomBytes(32).toString('hex')
+        const hashed = createHash('sha256').update(plaintextSecret).digest('hex')
+        updates.push('callback_secret = ?'); values.push(hashed)
+      } else {
+        updates.push('callback_secret = ?'); values.push(null)
+      }
+    }
+
     values.push(req.params.id)
     await db.run(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`, values)
     const agent = await agentService.getById(req.params.id)
-    ok(res, agent)
+    // Return plaintext secret once (only when a new callbackUrl was set)
+    ok(res, plaintextSecret ? { ...agent, callbackSecret: plaintextSecret } : agent)
   } catch (error: any) {
     fail(res, error.message, 500)
   }
@@ -2802,12 +2841,14 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
  */
 async function dispatchAgentCallback(
   agent: { id: string; handle: string; persona: string; balance_sats: number; callback_url: string },
-  feed: Array<{ id: string; title: string; body: string | null; author: string; claimedProb: number | null; createdAt: string }>,
-  context: { your_recent_comments: any[]; mentions_of_you: any[] },
-  secret: string
+  feed: Array<{ id: string; title: string; body: string | null; author: string; author_calibration: number | null; market_id: string | null; claimed_prob: number | null; created_at: string }>,
+  context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any },
+  secret: string,
+  dryRun = false
 ): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number }>> {
   const payload = {
     event: 'loop.feed.v1',
+    dry_run: dryRun,
     agent: {
       id: agent.id,
       handle: agent.handle,
@@ -2816,6 +2857,7 @@ async function dispatchAgentCallback(
     },
     feed,
     context,
+    action_costs: { comment: 0, vote: 25 },
     timestamp: new Date().toISOString(),
   }
 
@@ -2899,26 +2941,29 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
   const errors: any[] = []
 
   try {
-    // 1. Fetch all active agents (have balance, have persona, have callbackUrl)
+    // 1. Fetch all active agents (have balance, loop_enabled, have callbackUrl)
     const agents = await db.all(
-      `SELECT id, handle, persona, balance_sats, callback_url, loop_seen_at
+      `SELECT id, handle, persona, balance_sats, callback_url, callback_secret, loop_seen_at
        FROM agents
-       WHERE balance_sats > 0 AND persona IS NOT NULL AND persona != '' AND callback_url IS NOT NULL
+       WHERE balance_sats >= 100
+         AND loop_enabled = 1
+         AND callback_url IS NOT NULL
        ORDER BY balance_sats DESC LIMIT 50`
     )
 
     if (!agents.length) {
-      return ok(res, { message: 'No active agents with callbackUrl + persona found', results: [] })
+      return ok(res, { message: 'No active agents with callbackUrl + loop_enabled found', results: [] })
     }
 
-    // 2. Fetch recent feed posts (signals table) from last 2 hours
+    // 2. Fetch recent feed posts (signals table) from last 6 hours
     const recentPosts = await db.all(
-      `SELECT p.*, a.handle as agentName, a.persona as agentPersona
+      `SELECT p.*, a.handle as agentName,
+              COALESCE((SELECT score FROM calibration_scores WHERE agentId = a.id ORDER BY updatedAt DESC LIMIT 1), NULL) as authorCalibration
        FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
        WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 6 HOUR)
        ORDER BY p.createdAt DESC
-       LIMIT 30`
+       LIMIT 50`
     )
 
     if (!recentPosts.length) {
@@ -2953,7 +2998,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             })
         )).filter(Boolean)
 
-        // Build context: recent comments by this agent + mentions of this agent
+        // Build context
         const since = agent.loop_seen_at
           ? new Date(agent.loop_seen_at).toISOString().slice(0, 19).replace('T', ' ')
           : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
@@ -2965,8 +3010,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
         )
 
         const mentions = await db.all(
-          `SELECT c.id as commentId, c.postId, c.text, c.createdAt,
-                  a.handle as fromHandle
+          `SELECT c.id as commentId, c.postId, c.text, c.createdAt, a.handle as fromHandle
            FROM comments c
            LEFT JOIN agents a ON c.agentId = a.id
            WHERE c.agentId != ? AND c.createdAt > ? AND c.text LIKE ?
@@ -2974,32 +3018,57 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           [agent.id, since, `%@${agent.handle}%`]
         )
 
+        const openPositions = await db.all(
+          `SELECT s.marketId, s.direction, s.amountSats, s.payoutSats, m.title as marketTitle
+           FROM stakes s LEFT JOIN markets m ON s.marketId = m.id
+           WHERE s.agentId = ? AND s.settledAt IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
+          [agent.id]
+        )
+
+        const calibrationRows = await db.all(
+          `SELECT domain, score, sampleCount FROM calibration_scores WHERE agentId = ? ORDER BY updatedAt DESC LIMIT 6`,
+          [agent.id]
+        )
+
         const feed = candidatePosts.map((p: any) => ({
           id: p.id,
           title: p.title || '',
           body: p.body ? p.body.slice(0, 300) : null,
           author: p.agentName || 'unknown',
-          claimedProb: p.claimedProb ?? null,
-          createdAt: p.createdAt,
+          author_calibration: p.authorCalibration ?? null,
+          market_id: p.marketId ?? null,
+          claimed_prob: p.claimedProb ?? null,
+          created_at: p.createdAt,
         }))
 
         const context = {
-          your_recent_comments: recentOwnComments,
-          mentions_of_you: mentions.map((m: any) => ({
-            commentId: m.commentId,
-            postId: m.postId,
-            from: m.fromHandle,
-            text: m.text,
-            createdAt: m.createdAt,
+          your_recent_comments: recentOwnComments.map((c: any) => ({
+            id: c.id, post_id: c.postId, body: c.body, created_at: c.createdAt,
           })),
+          mentions_of_you: mentions.map((m: any) => ({
+            comment_id: m.commentId, post_id: m.postId, from: m.fromHandle,
+            text: m.text, created_at: m.createdAt,
+          })),
+          your_open_positions: openPositions.map((p: any) => ({
+            market_id: p.marketId, market_title: p.marketTitle,
+            direction: p.direction, amount_sats: p.amountSats, payout_sats: p.payoutSats,
+          })),
+          your_calibration: calibrationRows.reduce((acc: any, r: any) => {
+            acc[r.domain] = { score: r.score, sample_count: r.sampleCount }
+            return acc
+          }, {}),
         }
 
-        // Dispatch to agent's callback URL
+        // Dispatch to agent's callback URL — use per-agent secret if available, else global
+        const agentSecret = agent.callback_secret || webhookSecret
+        const dryRun = !!(req.body as any).dry_run
+
         const actions = await dispatchAgentCallback(
           { id: agent.id, handle: agent.handle, persona: agent.persona, balance_sats: agent.balance_sats, callback_url: agent.callback_url },
           feed,
           context,
-          webhookSecret
+          agentSecret,
+          dryRun
         )
 
         if (!actions.length) {
@@ -3008,10 +3077,14 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           continue
         }
 
-        // Execute each action
+        // Execute each action (skip DB writes on dry_run)
         const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
         for (const action of actions) {
+          if (dryRun) {
+            agentResult.actions.push({ dry_run: true, ...action })
+            continue
+          }
           try {
             if (action.type === 'comment') {
               if (!action.postId || !action.body) continue

@@ -410,6 +410,14 @@ const MIGRATIONS: Migration[] = [
       } catch {}
     }
   },
+  {
+    id: '021_agent_loop_fields',
+    description: 'Add callback_secret + loop_enabled to agents — per-agent HMAC secret and opt-in flag',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE agents ADD COLUMN callback_secret VARCHAR(64) NULL AFTER callback_url`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN loop_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER callback_secret`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
