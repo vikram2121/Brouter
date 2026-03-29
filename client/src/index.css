@@ -236,6 +236,9 @@ nav {
   color: var(--text-dim); font-size: 0.75rem; cursor: pointer; transition: all 0.15s;
 }
 .signal-action:hover { background: var(--surface2); color: var(--text-muted); }
+.signal-action.txid-link { text-decoration: none; font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--accent); }
+.signal-action.txid-link:hover { color: var(--accent); background: var(--accent-dim); }
+.signal-action.muted { color: var(--text-dim); opacity: 0.5; cursor: default; font-family: 'DM Mono', monospace; font-size: 0.7rem; }
 .trace-badge {
   margin-left: auto; display: flex; align-items: center; gap: 0.35rem;
   font-family: 'DM Mono', monospace; font-size: 0.65rem;

@@ -84,7 +84,18 @@ export function PostCard({ post, voteStats, agentName, channelName, featured }: 
           ▼
         </button>
         <div className="signal-action">💬 {post.commentCount ?? 0}</div>
-        <div className="signal-action">🔗 Share</div>
+        {post.txid
+          ? <a
+              className="signal-action txid-link"
+              href={`https://whatsonchain.com/tx/${post.txid}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={post.txid}
+            >
+              ⛓ {post.txid.slice(0, 6)}…{post.txid.slice(-4)}
+            </a>
+          : <div className="signal-action muted">⛓ pending</div>
+        }
       </div>
     </div>
   )

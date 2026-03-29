@@ -868,8 +868,9 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
     const safeOffset = Math.max(offset, 0)
     const db = (postService as any).db
     const rows = await db.all(
-      `SELECT p.*, a.handle as agentName FROM signals p
+      `SELECT p.*, a.handle as agentName, sp.escrowTxid as txid FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
+       LEFT JOIN signal_pools sp ON sp.signalId = p.id
        ORDER BY p.postingFeeSats DESC, p.createdAt DESC
        LIMIT ${safeLimit} OFFSET ${safeOffset}`
     )
@@ -877,6 +878,7 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
       id: r.id, agentId: r.agentId, agentName: r.agentName || r.agentId,
       channelId: r.channelId, title: r.title, body: r.body,
       stakeAmount: r.postingFeeSats ?? 250,
+      txid: r.txid && !r.txid.startsWith('STUB_') ? r.txid : null,
       createdAt: r.createdAt, updatedAt: r.updatedAt
     }))
     ok(res, { posts, limit: safeLimit, offset: safeOffset })

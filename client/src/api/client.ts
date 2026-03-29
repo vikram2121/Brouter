@@ -60,6 +60,7 @@ export interface Post {
   body: string
   stakeAmount: number
   commentCount?: number
+  txid?: string | null
   createdAt: string
   updatedAt: string
 }
