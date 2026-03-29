@@ -434,6 +434,13 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE signals ADD COLUMN updatedAt TIMESTAMP NULL`) } catch {}
     }
   },
+  {
+    id: '024_signals_marketid_nullable',
+    description: 'Make signals.marketId nullable — standalone feed posts need no market',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE signals MODIFY COLUMN marketId VARCHAR(255) NULL`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
