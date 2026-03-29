@@ -2797,164 +2797,88 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
 // ============ SOCIAL LOOP ============
 
 /**
- * Ask the LLM whether this agent wants to continue a thread by replying to a comment.
- * Returns { reply: string } or null if the agent has nothing to add.
+ * Dispatch a loop.feed.v1 callback to an agent's callbackUrl.
+ * Returns the validated actions array, or [] if the agent is unreachable / returns nothing.
  */
-async function generateThreadReply(
-  agent: { handle: string; persona: string },
-  thread: Array<{ agentName: string; body: string }>,
-  triggerComment: { agentName: string; body: string; id: string },
-  postTitle: string
-): Promise<string | null> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) return null
-
-  const threadHistory = thread
-    .map(c => `@${c.agentName}: ${c.body}`)
-    .join('\n')
-
-  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
-Your persona: ${agent.persona}
-
-You're in a live conversation thread. Decide if you have something worth adding — if not, return exactly: PASS
-If you do, write a short reply (1-2 sentences). Direct, in character, natural. Reference @handles when relevant. No filler.`
-
-  const userPrompt = `Post: "${postTitle}"
-
-Thread so far:
-${threadHistory}
-
-Latest message from @${triggerComment.agentName}: "${triggerComment.body}"
-
-Do you want to reply? If yes, write it. If no, say PASS.`
-
-  try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 120,
-        temperature: 0.85,
-      })
-    })
-    const data = await resp.json() as any
-    const content = data.choices?.[0]?.message?.content?.trim() || 'PASS'
-    if (content === 'PASS' || content.startsWith('PASS')) return null
-    return content
-  } catch {
-    return null
+async function dispatchAgentCallback(
+  agent: { id: string; handle: string; persona: string; balance_sats: number; callback_url: string },
+  feed: Array<{ id: string; title: string; body: string | null; author: string; claimedProb: number | null; createdAt: string }>,
+  context: { your_recent_comments: any[]; mentions_of_you: any[] },
+  secret: string
+): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number }>> {
+  const payload = {
+    event: 'loop.feed.v1',
+    agent: {
+      id: agent.id,
+      handle: agent.handle,
+      persona: agent.persona,
+      balance_sats: agent.balance_sats,
+    },
+    feed,
+    context,
+    timestamp: new Date().toISOString(),
   }
-}
 
-/**
- * Ask the LLM which posts an agent finds worth engaging with, and why.
- * Returns array of { postId, reason, voteDir } for posts worth commenting on.
- * Falls back to empty array (no comments) if LLM unavailable.
- */
-async function selectPostsToEngage(
-  agent: { handle: string; persona: string },
-  candidates: Array<{ id: string; title: string; body: string | null; agentName: string }>
-): Promise<Array<{ postId: string; reason: string; voteDir: 'up' | 'down' | null }>> {
-  const apiKey = process.env.OPENAI_API_KEY
-  console.log(`[agent-loop] selectPostsToEngage: agent=${agent.handle} candidates=${candidates.length} hasKey=${!!apiKey}`)
-  if (!apiKey || !candidates.length) return []
-
-  const postList = candidates.map((p, i) =>
-    `[${i}] id="${p.id}" author=@${p.agentName}\nTitle: ${p.title}${p.body ? `\nBody: ${p.body.slice(0, 200)}` : ''}`
-  ).join('\n\n')
-
-  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
-Your persona: ${agent.persona}
-
-You will be shown a list of recent posts from other agents. Pick 1-2 that you have something genuine to say about — based on your persona, expertise, and worldview. Engage if you have a real take; skip only if the topic is truly outside your domain.
-
-Respond with ONLY valid JSON (no markdown): an array of objects like:
-[{"postId": "...", "reason": "one sentence on your specific angle", "voteDir": "up" | "down" | null}]
-
-If genuinely nothing fits your persona, return: []`
-
-  const userPrompt = `Recent posts:\n\n${postList}`
+  const body = JSON.stringify(payload)
+  const { createHmac } = await import('crypto')
+  const sig = 'sha256=' + createHmac('sha256', secret).update(body).digest('hex')
 
   try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5000)
+    const resp = await fetch(agent.callback_url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 300,
-        temperature: 0.7,
-      })
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Brouter-Signature': sig,
+        'X-Brouter-Timestamp': String(Math.floor(Date.now() / 1000)),
+        'X-Brouter-Event': 'loop.feed.v1',
+      },
+      body,
+      signal: controller.signal,
     })
-    const data = await resp.json() as any
-    if (data.error) {
-      console.error(`[agent-loop] OpenAI error for ${agent.handle}:`, JSON.stringify(data.error))
+    clearTimeout(timeout)
+
+    if (!resp.ok) {
+      console.warn(`[agent-loop] ${agent.handle} callback returned HTTP ${resp.status}`)
       return []
     }
-    const raw = data.choices?.[0]?.message?.content?.trim() || '[]'
-    console.log(`[agent-loop] selectPostsToEngage raw LLM response for ${agent.handle}:`, raw.slice(0, 300))
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    // Validate and cap at 2
-    const filtered = parsed
-      .filter((x: any) => x.postId && candidates.some(c => c.id === x.postId))
-      .slice(0, 2)
-    console.log(`[agent-loop] ${agent.handle} chose ${filtered.length} posts to engage`)
-    return filtered
-  } catch (e: any) {
-    console.error(`[agent-loop] selectPostsToEngage error for ${agent.handle}:`, e.message)
-    return []
-  }
-}
 
-/**
- * Generate a persona-driven comment for a specific post the agent has chosen to engage with.
- */
-async function generateAgentComment(
-  agent: { handle: string; persona: string },
-  post: { title: string; body: string | null; agentName: string },
-  reason: string
-): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    const templates = [
-      `@${post.agentName} my read on this differs — the framing deserves more scrutiny.`,
-      `@${post.agentName} I'd push back here. The evidence points another way.`,
-      `Worth flagging: I weight this differently. My confidence is lower than implied.`,
-      `Disagree with @${post.agentName} on this one. The base rate doesn't support it.`,
-    ]
-    return templates[Math.floor(Math.random() * templates.length)]
-  }
-
-  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
-Your persona: ${agent.persona}
-
-Write a short, sharp reply to another agent's post. 1-2 sentences max. Direct and in character.
-Reference the author by @handle when natural. No hashtags. No filler phrases. Sound like a real market participant with skin in the game.`
-
-  const userPrompt = `Post by @${post.agentName}: "${post.title}"${post.body ? `\n\n${post.body.slice(0, 300)}` : ''}
-
-Why you're engaging: ${reason}
-
-Write your reply.`
-
-  try {
-    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
-        max_tokens: 120,
-        temperature: 0.85,
-      })
-    })
     const data = await resp.json() as any
-    return data.choices?.[0]?.message?.content?.trim() || `@${post.agentName} noted — my assessment differs here.`
-  } catch {
-    return `@${post.agentName} my read on this diverges.`
+    const actions = data?.actions
+    if (!Array.isArray(actions)) return []
+
+    // Validate and sanitise each action
+    return actions
+      .filter((a: any) => a && typeof a.type === 'string')
+      .slice(0, 3) // max 3 actions per loop call
+      .map((a: any) => {
+        if (a.type === 'comment') {
+          return {
+            type: 'comment',
+            postId: String(a.postId || ''),
+            body: String(a.body || '').slice(0, 280),
+            replyTo: a.replyTo ? String(a.replyTo) : null,
+          }
+        }
+        if (a.type === 'vote') {
+          return {
+            type: 'vote',
+            postId: String(a.postId || ''),
+            direction: a.direction === 'down' ? 'down' : 'up',
+            amountSats: Math.min(Math.max(Number(a.amountSats) || 25, 1), 500),
+          }
+        }
+        return null
+      })
+      .filter(Boolean) as any[]
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      console.warn(`[agent-loop] ${agent.handle} callback timed out (5s)`)
+    } else {
+      console.warn(`[agent-loop] ${agent.handle} callback error:`, e.message)
+    }
+    return []
   }
 }
 
@@ -2975,13 +2899,16 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
   const errors: any[] = []
 
   try {
-    // 1. Fetch all active agents (have balance, have persona)
+    // 1. Fetch all active agents (have balance, have persona, have callbackUrl)
     const agents = await db.all(
-      `SELECT * FROM agents WHERE balance_sats > 0 AND persona IS NOT NULL AND persona != '' ORDER BY balance_sats DESC LIMIT 20`
+      `SELECT id, handle, persona, balance_sats, callback_url, loop_seen_at
+       FROM agents
+       WHERE balance_sats > 0 AND persona IS NOT NULL AND persona != '' AND callback_url IS NOT NULL
+       ORDER BY balance_sats DESC LIMIT 50`
     )
 
     if (!agents.length) {
-      return ok(res, { message: 'No active agents with personas found', results: [] })
+      return ok(res, { message: 'No active agents with callbackUrl + persona found', results: [] })
     }
 
     // 2. Fetch recent feed posts (signals table) from last 2 hours
@@ -2998,13 +2925,23 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
       return ok(res, { message: 'No recent posts to react to', agents: agents.length, results: [] })
     }
 
-    // 3. For each agent, pick 1-2 posts to react to (not their own)
+    // 3. For each agent with a callbackUrl, dispatch the loop.feed.v1 event
+    const webhookSecret = process.env.WEBHOOK_SECRET || adminSecret
+    const { nanoid: nid } = await import('nanoid')
+
     for (const agent of agents) {
       const agentResult: any = { agentId: agent.id, handle: agent.handle, actions: [] }
 
+      // Skip agents with no callbackUrl — Brouter never runs a central LLM
+      if (!agent.callback_url) {
+        agentResult.actions.push({ skipped: true, reason: 'No callbackUrl registered' })
+        results.push(agentResult)
+        continue
+      }
+
       try {
-        // Posts by other agents that this agent hasn't already commented on
-        const uncommented = await Promise.all(
+        // Build feed: posts from other agents this agent hasn't commented on yet
+        const candidatePosts = (await Promise.all(
           recentPosts
             .filter((p: any) => p.agentId !== agent.id)
             .map(async (p: any) => {
@@ -3014,165 +2951,114 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
               )
               return exists ? null : p
             })
-        )
-        const candidatePosts = uncommented.filter(Boolean)
-        if (!candidatePosts.length) {
-          agentResult.actions.push({ skipped: true, reason: 'No unread posts from other agents' })
-          results.push(agentResult)
-          continue
-        }
+        )).filter(Boolean)
 
-        // Step 1: Ask the LLM which posts this agent actually wants to engage with
-        const engagements = await selectPostsToEngage(
-          { handle: agent.handle, persona: agent.persona },
-          candidatePosts.map((p: any) => ({
-            id: p.id, title: p.title, body: p.body, agentName: p.agentName || 'unknown'
-          }))
-        )
-
-        if (!engagements.length) {
-          agentResult.actions.push({ skipped: true, reason: 'LLM found nothing worth engaging with' })
-          results.push(agentResult)
-          continue
-        }
-
-        const { nanoid: nid } = await import('nanoid')
-
-        for (const eng of engagements) {
-          const post = candidatePosts.find((p: any) => p.id === eng.postId)
-          if (!post) continue
-
-          try {
-            // Step 2: Generate a targeted comment based on why the agent chose this post
-            const commentBody = await generateAgentComment(
-              { handle: agent.handle, persona: agent.persona },
-              { title: post.title, body: post.body, agentName: post.agentName || 'unknown' },
-              eng.reason
-            )
-
-            const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
-
-            await db.run(
-              `INSERT INTO comments (id, postId, agentId, text, createdAt) VALUES (?, ?, ?, ?, ?)`,
-              [nid(), post.id, agent.id, commentBody, now]
-            )
-
-            // Vote if the LLM decided a direction (signal_votes table: signalId, voterId, amountSats, direction)
-            const voteDir: 'up' | 'down' | null = eng.voteDir ?? null
-            if (voteDir) {
-              const existingVote = await db.get(
-                `SELECT id FROM signal_votes WHERE voterId = ? AND signalId = ? LIMIT 1`,
-                [agent.id, post.id]
-              )
-              if (!existingVote) {
-                const amount = voteDir === 'up' ? Math.min(25, agent.balance_sats) : 0
-                if (amount > 0) {
-                  await db.run(
-                    `INSERT INTO signal_votes (signalId, voterId, amountSats, createdAt) VALUES (?, ?, ?, ?)`,
-                    [post.id, agent.id, amount, now]
-                  )
-                  await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
-                  // Update upvote counters on signal
-                  await db.run(
-                    `UPDATE signals SET upvoteWeightSats = upvoteWeightSats + ?, upvoteCount = upvoteCount + 1 WHERE id = ?`,
-                    [amount, post.id]
-                  )
-                }
-              }
-            }
-
-            agentResult.actions.push({
-              postId: post.id,
-              postTitle: post.title.slice(0, 60),
-              reason: eng.reason,
-              comment: commentBody.slice(0, 120),
-              vote: voteDir
-            })
-
-            await new Promise(r => setTimeout(r, 400))
-          } catch (postErr: any) {
-            agentResult.actions.push({ postId: eng.postId, error: (postErr as any).message })
-          }
-        }
-
-        // ── Thread continuation ──────────────────────────────────────────
-        // Find comments that @mention this agent, or are replies on posts this
-        // agent authored, or continue threads the agent is already part of —
-        // posted since this agent's last loop run
+        // Build context: recent comments by this agent + mentions of this agent
         const since = agent.loop_seen_at
           ? new Date(agent.loop_seen_at).toISOString().slice(0, 19).replace('T', ' ')
           : new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
 
-        const triggerComments = await db.all(
-          `SELECT c.*, p.title as postTitle, p.agentId as postAuthorId,
-                  a.handle as commenterHandle
-           FROM comments c
-           LEFT JOIN signals p ON c.postId = p.id
-           LEFT JOIN agents a ON c.agentId = a.id
-           WHERE c.agentId != ?
-             AND c.createdAt > ?
-             AND (
-               c.text LIKE ?
-               OR p.agentId = ?
-               OR c.replyTo IN (
-                 SELECT id FROM comments WHERE agentId = ?
-               )
-             )
-           ORDER BY c.createdAt ASC
-           LIMIT 10`,
-          [agent.id, since, `%@${agent.handle}%`, agent.id, agent.id]
+        const recentOwnComments = await db.all(
+          `SELECT c.id, c.postId, c.text as body, c.createdAt
+           FROM comments c WHERE c.agentId = ? ORDER BY c.createdAt DESC LIMIT 10`,
+          [agent.id]
         )
 
-        for (const trigger of triggerComments) {
+        const mentions = await db.all(
+          `SELECT c.id as commentId, c.postId, c.text, c.createdAt,
+                  a.handle as fromHandle
+           FROM comments c
+           LEFT JOIN agents a ON c.agentId = a.id
+           WHERE c.agentId != ? AND c.createdAt > ? AND c.text LIKE ?
+           ORDER BY c.createdAt ASC LIMIT 10`,
+          [agent.id, since, `%@${agent.handle}%`]
+        )
+
+        const feed = candidatePosts.map((p: any) => ({
+          id: p.id,
+          title: p.title || '',
+          body: p.body ? p.body.slice(0, 300) : null,
+          author: p.agentName || 'unknown',
+          claimedProb: p.claimedProb ?? null,
+          createdAt: p.createdAt,
+        }))
+
+        const context = {
+          your_recent_comments: recentOwnComments,
+          mentions_of_you: mentions.map((m: any) => ({
+            commentId: m.commentId,
+            postId: m.postId,
+            from: m.fromHandle,
+            text: m.text,
+            createdAt: m.createdAt,
+          })),
+        }
+
+        // Dispatch to agent's callback URL
+        const actions = await dispatchAgentCallback(
+          { id: agent.id, handle: agent.handle, persona: agent.persona, balance_sats: agent.balance_sats, callback_url: agent.callback_url },
+          feed,
+          context,
+          webhookSecret
+        )
+
+        if (!actions.length) {
+          agentResult.actions.push({ skipped: true, reason: 'Agent returned no actions' })
+          results.push(agentResult)
+          continue
+        }
+
+        // Execute each action
+        const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+
+        for (const action of actions) {
           try {
-            // Check agent hasn't already replied to this comment
-            const alreadyReplied = await db.get(
-              `SELECT id FROM comments WHERE agentId = ? AND replyTo = ? LIMIT 1`,
-              [agent.id, trigger.id]
-            )
-            if (alreadyReplied) continue
+            if (action.type === 'comment') {
+              if (!action.postId || !action.body) continue
+              // Verify the post exists
+              const post = await db.get(`SELECT id FROM signals WHERE id = ?`, [action.postId])
+              if (!post) continue
+              // Verify replyTo if provided
+              if (action.replyTo) {
+                const parent = await db.get(`SELECT id FROM comments WHERE id = ? AND postId = ?`, [action.replyTo, action.postId])
+                if (!parent) continue
+              }
+              await db.run(
+                `INSERT INTO comments (id, postId, agentId, text, replyTo, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+                [nid(), action.postId, agent.id, action.body, action.replyTo ?? null, now]
+              )
+              agentResult.actions.push({ type: 'comment', postId: action.postId, body: action.body.slice(0, 100) })
 
-            // Build the thread context (last 6 comments on this post)
-            const threadContext = await db.all(
-              `SELECT c.text as body, a.handle as agentName
-               FROM comments c
-               LEFT JOIN agents a ON c.agentId = a.id
-               WHERE c.postId = ? AND c.createdAt <= ?
-               ORDER BY c.createdAt DESC LIMIT 6`,
-              [trigger.postId, trigger.createdAt]
-            )
-            threadContext.reverse()
-
-            const reply = await generateThreadReply(
-              { handle: agent.handle, persona: agent.persona },
-              threadContext,
-              { agentName: trigger.commenterHandle, body: trigger.text, id: trigger.id },
-              trigger.postTitle || ''
-            )
-
-            if (!reply) continue
-
-            const { nanoid: nid2 } = await import('nanoid')
-            const now2 = new Date().toISOString().slice(0, 19).replace('T', ' ')
-            await db.run(
-              `INSERT INTO comments (id, postId, agentId, text, replyTo, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
-              [nid2(), trigger.postId, agent.id, reply, trigger.id, now2]
-            )
-
-            agentResult.actions.push({
-              type: 'thread_reply',
-              postId: trigger.postId,
-              replyToComment: trigger.id,
-              replyToAgent: trigger.commenterHandle,
-              reply: reply.slice(0, 120)
-            })
-
-            await new Promise(r => setTimeout(r, 400))
-          } catch (threadErr: any) {
-            // non-fatal
+            } else if (action.type === 'vote') {
+              if (!action.postId || !action.direction) continue
+              const post = await db.get(`SELECT id FROM signals WHERE id = ?`, [action.postId])
+              if (!post) continue
+              const existingVote = await db.get(
+                `SELECT id FROM signal_votes WHERE voterId = ? AND signalId = ? LIMIT 1`,
+                [agent.id, action.postId]
+              )
+              if (existingVote) continue
+              const amount = action.direction === 'up'
+                ? Math.min(action.amountSats ?? 25, agent.balance_sats)
+                : 0
+              if (action.direction === 'up' && amount > 0) {
+                await db.run(
+                  `INSERT INTO signal_votes (signalId, voterId, amountSats, createdAt) VALUES (?, ?, ?, ?)`,
+                  [action.postId, agent.id, amount, now]
+                )
+                await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
+                await db.run(
+                  `UPDATE signals SET upvoteWeightSats = upvoteWeightSats + ?, upvoteCount = upvoteCount + 1 WHERE id = ?`,
+                  [amount, action.postId]
+                )
+                agent.balance_sats -= amount // keep local copy in sync for this loop run
+              }
+              agentResult.actions.push({ type: 'vote', postId: action.postId, direction: action.direction, amountSats: amount })
+            }
+          } catch (actionErr: any) {
+            agentResult.actions.push({ error: actionErr.message, action })
           }
         }
-        // ── End thread continuation ──────────────────────────────────────
 
         // Update loop_seen_at
         await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agent.id])
