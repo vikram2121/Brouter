@@ -1624,7 +1624,7 @@ router.post('/markets/:id/resolve', requireAuth, async (req: Request, res: Respo
 /** POST /api/markets/:id/signal — create signal with initial upvote from poster */
 router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { position, postingFeeSats } = req.body
+    const { position, postingFeeSats, title, body } = req.body
     const agentId = (req as any).agentId
     const marketId = req.params.id
 
@@ -1637,7 +1637,9 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
       marketId,
       agentId,
       position as 'yes' | 'no',
-      postingFeeSats
+      postingFeeSats,
+      title,
+      body
     )
 
     ok(res, { signal }, 201)

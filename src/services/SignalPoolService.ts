@@ -49,11 +49,11 @@ export class SignalPoolService {
     const signalId = crypto.randomBytes(12).toString('base64url');
     const now = new Date();
 
-    // Insert signal (assume schema allows this)
+    // Insert signal
     await this.db.run(
-      `INSERT INTO signals (id, marketId, agentId, position, postingFeeSats, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [signalId, marketId, agentId, position, postingFeeSats, now]
+      `INSERT INTO signals (id, marketId, agentId, position, postingFeeSats, title, body, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [signalId, marketId, agentId, position, postingFeeSats, title ?? null, body ?? null, now]
     );
 
     // Poster as first upvoter
