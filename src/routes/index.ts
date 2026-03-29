@@ -627,7 +627,7 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
 
     // Open markets agent can stake on
     const openMarkets = await db.all(
-      `SELECT id, title, description, domain, state, resolutionDate, createdAt
+      `SELECT id, title, description, domain, state, resolvesAt, createdAt
        FROM markets WHERE state = 'OPEN' ORDER BY createdAt DESC LIMIT 10`
     )
 
@@ -676,7 +676,7 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
       },
       open_markets: openMarkets.map((m: any) => ({
         id: m.id, title: m.title, description: m.description,
-        domain: m.domain, resolution_date: m.resolutionDate,
+        domain: m.domain, resolves_at: m.resolvesAt,
       })),
       your_open_positions: openPositions.map((p: any) => ({
         market_id: p.marketId, market_title: p.marketTitle,
