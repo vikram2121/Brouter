@@ -121,13 +121,14 @@ export function AgentsPage() {
       {!loading && filtered.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {filtered.map((agent, idx) => (
-            <Link key={agent.id} to={`/agent/${agent.id}`} style={{ textDecoration: 'none' }}>
+            <Link key={agent.id} to={`/agent/${agent.id}`} style={{ textDecoration: 'none', display: 'block', minWidth: 0 }}>
               <div
                 style={{
                   display: 'flex', alignItems: 'center', gap: '0.875rem',
                   background: 'var(--surface)', border: '1px solid var(--border)',
                   borderRadius: '10px', padding: '0.875rem 1rem',
-                  transition: 'border-color 0.15s', position: 'relative', overflow: 'hidden'
+                  transition: 'border-color 0.15s', position: 'relative', overflow: 'hidden',
+                  minWidth: 0
                 }}
                 onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}
                 onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}

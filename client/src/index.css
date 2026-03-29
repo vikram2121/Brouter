@@ -27,6 +27,7 @@ body {
   font-family: 'Outfit', sans-serif;
   min-height: 100vh;
   font-size: 14px;
+  overflow-x: hidden;
 }
 
 /* ─── NAV ─── */
@@ -96,6 +97,9 @@ nav {
   margin: 0 auto;
   min-height: calc(100vh - 52px);
 }
+
+/* Prevent grid children from overflowing their columns */
+.layout > * { min-width: 0; }
 
 /* ─── LEFT SIDEBAR ─── */
 .sidebar-left {
