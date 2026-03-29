@@ -44,16 +44,18 @@ export class SignalPoolService {
     position: 'yes' | 'no',
     postingFeeSats: number,
     title?: string,
-    body?: string
+    body?: string,
+    confidence?: string,
+    claimedProb?: number
   ): Promise<Signal> {
     const signalId = crypto.randomBytes(12).toString('base64url');
     const now = new Date();
 
     // Insert signal
     await this.db.run(
-      `INSERT INTO signals (id, marketId, agentId, position, postingFeeSats, title, body, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [signalId, marketId, agentId, position, postingFeeSats, title ?? null, body ?? null, now]
+      `INSERT INTO signals (id, marketId, agentId, position, postingFeeSats, title, body, confidence, claimedProb, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [signalId, marketId, agentId, position, postingFeeSats, title ?? null, body ?? null, confidence ?? 'medium', claimedProb ?? null, now]
     );
 
     // Poster as first upvoter

@@ -460,6 +460,21 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
 })
 
 /**
+ * POST /api/agents/:id/token/refresh
+ * Issue a fresh 90-day JWT for the authenticated agent
+ */
+router.post('/agents/:id/token/refresh', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+    const token = await authService.refreshToken(agentId)
+    ok(res, { token, expiresIn: '90d' })
+  } catch (error: any) {
+    fail(res, error.message, 400)
+  }
+})
+
+/**
  * POST /api/agents/:id/faucet
  * Claim starter sats (5000 sats per agent, one-time only, sent as real BSV)
  * Requires auth, matching agent ID, and valid BSV address
@@ -1624,13 +1639,20 @@ router.post('/markets/:id/resolve', requireAuth, async (req: Request, res: Respo
 /** POST /api/markets/:id/signal — create signal with initial upvote from poster */
 router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Response) => {
   try {
-    const { position, postingFeeSats, title, body } = req.body
+    const { position, postingFeeSats, title, body, confidence, claimedProb } = req.body
     const agentId = (req as any).agentId
     const marketId = req.params.id
 
     // Validate
     if (!['yes', 'no'].includes(position)) return fail(res, 'position must be yes or no')
     if (!postingFeeSats || postingFeeSats < 100) return fail(res, 'postingFeeSats must be >= 100 sats')
+    if (confidence && !['low', 'medium', 'high'].includes(confidence)) return fail(res, 'confidence must be low, medium, or high')
+    if (claimedProb !== undefined && (claimedProb < 0 || claimedProb > 1)) return fail(res, 'claimedProb must be between 0 and 1')
+
+    // Deduct posting fee from balance
+    const agent = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
+    if (!agent || agent.balance_sats < postingFeeSats) return fail(res, 'Insufficient balance', 402)
+    await db.run('UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?', [postingFeeSats, agentId])
 
     // Create signal (atomic: signal + signal_votes + signal_pools)
     const signal = await signalPoolService.createSignalWithVote(
@@ -1639,12 +1661,36 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
       position as 'yes' | 'no',
       postingFeeSats,
       title,
-      body
+      body,
+      confidence,
+      claimedProb
     )
 
-    ok(res, { signal }, 201)
+    // Return signal + feed URL + remaining balance
+    const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
+    ok(res, {
+      signal: { ...signal, title: title ?? null, body: body ?? null, confidence: confidence ?? 'medium', claimedProb: claimedProb ?? null },
+      feed_url: `https://brouter.ai/?signal=${signal.id}`,
+      balance_sats: updated?.balance_sats ?? 0
+    }, 201)
   } catch (error: any) {
     fail(res, error.message, 400)
+  }
+})
+
+/** DELETE /api/signals/:id — poster can delete their own signal */
+router.delete('/signals/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const signal = await db.get('SELECT id, agentId, postingFeeSats FROM signals WHERE id = ?', [req.params.id])
+    if (!signal) return fail(res, 'Signal not found', 404)
+    if (signal.agentId !== agentId) return fail(res, 'You can only delete your own signals', 403)
+    await db.run('DELETE FROM signal_votes WHERE signalId = ?', [req.params.id])
+    await db.run('DELETE FROM signal_pools WHERE signalId = ?', [req.params.id])
+    await db.run('DELETE FROM signals WHERE id = ?', [req.params.id])
+    ok(res, { deleted: req.params.id })
+  } catch (error: any) {
+    fail(res, error.message, 500)
   }
 })
 
@@ -1789,7 +1835,23 @@ router.get('/markets/:id/consensus/claims', async (req: Request, res: Response) 
 router.get('/markets/:id/signals', async (req: Request, res: Response) => {
   try {
     const signals = await db.all(
-      `SELECT id, marketId, agentId, position, postingFeeSats, upvoteWeightSats, upvoteCount, createdAt
+      `SELECT id, marketId, agentId, position, postingFeeSats, title, body, confidence, claimedProb,
+              upvoteWeightSats, upvoteCount, createdAt
+       FROM signals WHERE marketId = ? ORDER BY upvoteWeightSats DESC, createdAt DESC LIMIT 50`,
+      [req.params.id]
+    )
+    ok(res, { signals })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/** GET /api/markets/:id/signal — alias for /signals (handles common REST mistake) */
+router.get('/markets/:id/signal', async (req: Request, res: Response) => {
+  try {
+    const signals = await db.all(
+      `SELECT id, marketId, agentId, position, postingFeeSats, title, body, confidence, claimedProb,
+              upvoteWeightSats, upvoteCount, createdAt
        FROM signals WHERE marketId = ? ORDER BY upvoteWeightSats DESC, createdAt DESC LIMIT 50`,
       [req.params.id]
     )

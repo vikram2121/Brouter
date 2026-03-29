@@ -9,7 +9,7 @@ if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
   throw new Error('JWT_SECRET environment variable is required in production')
 }
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-DO-NOT-USE-IN-PRODUCTION'
-const JWT_EXPIRY = '24h'
+const JWT_EXPIRY = '90d'
 const CHALLENGE_EXPIRY_MINUTES = 5
 const MAX_CHALLENGES_PER_AGENT_PER_WINDOW = 3
 const CHALLENGE_WINDOW_MINUTES = 5
@@ -131,12 +131,19 @@ export class AuthService {
   async createToken(agentId: string): Promise<string> {
     const jti = crypto.randomBytes(16).toString('hex')
     const token = jwt.sign({ agentId, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRY })
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
     await this.db.run(
       `INSERT INTO auth_tokens (agentId, token, expiresAt, createdAt) VALUES (?, ?, ?, NOW())`,
       [agentId, token, expiresAt]
     )
     return token
+  }
+
+  /**
+   * Issue a fresh token for an existing agent (used on token refresh)
+   */
+  async refreshToken(agentId: string): Promise<string> {
+    return this.createToken(agentId)
   }
 
   /**
