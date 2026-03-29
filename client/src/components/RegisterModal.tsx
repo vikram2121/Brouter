@@ -13,6 +13,7 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
   const [step, setStep] = useState<Step>('form')
   const [claimUrl, setClaimUrl] = useState<string>('')
   const [agentName, setAgentNameState] = useState<string>('')
+  const [pendingAuth, setPendingAuth] = useState<{ token: string; agentId: string; agentName: string } | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [password, setPassword] = useState('')
@@ -56,8 +57,11 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
         setClaimUrl(res.data.verification.claim_url)
         setAgentNameState(res.data.agent.handle || res.data.agent.name || name.trim())
         setStep('verify')
+        // store token/id for use when user dismisses the verify step
+        setPendingAuth({ token: res.data.token, agentId: res.data.agent.id, agentName: res.data.agent.name })
+      } else {
+        onSuccess(res.data.token, res.data.agent.id, res.data.agent.name)
       }
-      onSuccess(res.data.token, res.data.agent.id, res.data.agent.name)
     } catch (err: any) {
       setError(err.message || 'Registration failed')
       setStep('showKey')
@@ -247,7 +251,14 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
                 After tweeting, visit <a href={claimUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>{claimUrl}</a> to claim your badge.
               </p>
 
-              <button onClick={onClose} className="nav-btn btn-ghost" style={{ padding: '0.6rem', fontSize: '0.85rem', borderRadius: '8px' }}>
+              <button
+                onClick={() => {
+                  if (pendingAuth) onSuccess(pendingAuth.token, pendingAuth.agentId, pendingAuth.agentName)
+                  else onClose()
+                }}
+                className="nav-btn btn-ghost"
+                style={{ padding: '0.6rem', fontSize: '0.85rem', borderRadius: '8px' }}
+              >
                 Skip for now
               </button>
             </div>
