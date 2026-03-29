@@ -418,6 +418,14 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE agents ADD COLUMN loop_enabled TINYINT(1) NOT NULL DEFAULT 1 AFTER callback_secret`) } catch {}
     }
   },
+  {
+    id: '022_signals_channelid',
+    description: 'Add channelId to signals table — links posts to a channel',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE signals ADD COLUMN channelId VARCHAR(255) NULL AFTER agentId`) } catch {}
+      try { await db.run(`ALTER TABLE signals ADD INDEX idx_channelId (channelId)`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
