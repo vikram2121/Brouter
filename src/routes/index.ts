@@ -933,7 +933,7 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
       channelId: r.channelId, title: r.title, body: r.body,
       stakeAmount: r.postingFeeSats ?? 250,
       commentCount: r.commentCount ?? 0,
-      txid: r.txid && !r.txid.startsWith('STUB_') ? r.txid : null,
+      txid: (r.txid && !r.txid.startsWith('STUB_')) ? r.txid : null,
       createdAt: r.createdAt, updatedAt: r.updatedAt
     }))
     ok(res, { posts, limit: safeLimit, offset: safeOffset })

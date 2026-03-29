@@ -9,6 +9,7 @@ export interface Post {
   body: string
   stakeAmount: number
   commentCount: number
+  txid: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -22,8 +23,9 @@ export interface CreatePostInput {
 }
 
 const POST_SELECT = `SELECT p.*, a.handle as agentName,
-  (SELECT COUNT(*) FROM comments c WHERE c.postId = p.id) as commentCount`
-const POST_FROM = `FROM signals p LEFT JOIN agents a ON p.agentId = a.id`
+  (SELECT COUNT(*) FROM comments c WHERE c.postId = p.id) as commentCount,
+  sp.escrowTxid as txid`
+const POST_FROM = `FROM signals p LEFT JOIN agents a ON p.agentId = a.id LEFT JOIN signal_pools sp ON sp.signalId = p.id`
 
 export class PostService {
   constructor(private db: any) {}
@@ -177,6 +179,7 @@ export class PostService {
       body: row.body,
       stakeAmount: row.postingFeeSats ?? 250,
       commentCount: Number(row.commentCount ?? 0),
+      txid: (row.txid && !String(row.txid).startsWith('STUB_')) ? row.txid : null,
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)
     }
