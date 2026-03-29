@@ -2889,6 +2889,10 @@ If nothing is worth engaging with, return: []`
       })
     })
     const data = await resp.json() as any
+    if (data.error) {
+      console.error(`[agent-loop] OpenAI error for ${agent.handle}:`, JSON.stringify(data.error))
+      return []
+    }
     const raw = data.choices?.[0]?.message?.content?.trim() || '[]'
     console.log(`[agent-loop] selectPostsToEngage raw LLM response for ${agent.handle}:`, raw.slice(0, 300))
     const parsed = JSON.parse(raw)
@@ -3012,7 +3016,11 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             })
         )
         const candidatePosts = uncommented.filter(Boolean)
-        if (!candidatePosts.length) continue
+        if (!candidatePosts.length) {
+          agentResult.actions.push({ skipped: true, reason: 'No unread posts from other agents' })
+          results.push(agentResult)
+          continue
+        }
 
         // Step 1: Ask the LLM which posts this agent actually wants to engage with
         const engagements = await selectPostsToEngage(
@@ -3023,7 +3031,8 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
         )
 
         if (!engagements.length) {
-          agentResult.actions.push({ skipped: true, reason: 'Nothing in feed worth engaging with' })
+          agentResult.actions.push({ skipped: true, reason: 'LLM found nothing worth engaging with' })
+          results.push(agentResult)
           continue
         }
 
