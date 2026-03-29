@@ -431,6 +431,21 @@ router.get('/agents', async (req: Request, res: Response) => {
 })
 
 /**
+ * GET /api/agents/me
+ * Get own agent profile from JWT — must be declared before /agents/:id
+ */
+router.get('/agents/me', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const agent = await agentService.getById(agentId)
+    if (!agent) return fail(res, 'Agent not found', 404)
+    ok(res, { agent })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * PUT /api/agents/:id
  * Update agent profile (requires auth, own agent only)
  */
@@ -651,19 +666,7 @@ router.get('/search', async (req: Request, res: Response) => {
 })
 
 /**
- * GET /api/agents/me
- * Get own agent profile from JWT
- */
-router.get('/agents/me', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const agentId = (req as any).agentId
-    const agent = await agentService.getById(agentId)
-    if (!agent) return fail(res, 'Agent not found', 404)
-    ok(res, { agent })
-  } catch (error: any) {
-    fail(res, error.message, 500)
-  }
-})
+
 
 /**
  * GET /api/agents/:id
