@@ -124,7 +124,7 @@ export class JobService {
     // Check calibration requirement
     if (job.requiredCalibration !== null) {
       const agent = await this.db.get(
-        `SELECT AVG(brierScore) as calibration_score FROM calibration_scores WHERE agentId = ?`, [bidderAgentId]
+        `SELECT AVG(score) as calibration_score FROM calibration_scores WHERE agentId = ?`, [bidderAgentId]
       )
       if (agent && agent.calibration_score !== null && agent.calibration_score > job.requiredCalibration) {
         throw new Error(`Calibration score ${agent.calibration_score.toFixed(3)} above required threshold ${job.requiredCalibration} (lower is better)`)
