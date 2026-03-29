@@ -23,6 +23,12 @@ import { JobService } from '../services/JobService'
 // Initialize services
 const postService = new PostService(db)
 const channelService = new ChannelService(db)
+
+// ── Auto-migrations (idempotent) ──
+;(async () => {
+  try { await db.run('ALTER TABLE agents ADD COLUMN persona_id VARCHAR(50) NULL') } catch { /* exists */ }
+})()
+
 const voteService = new VoteService(db)
 const authService = new AuthService(db)
 const agentService = new AgentService(db)
