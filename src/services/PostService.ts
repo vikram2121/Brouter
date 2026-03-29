@@ -58,6 +58,15 @@ export class PostService {
       [id, input.agentId, input.channelId, input.title, input.body ?? null, stake, now, now]
     )
 
+    // Create signal_pool so voting works on this post
+    try {
+      await this.db.run(
+        `INSERT INTO signal_pools (signalId, totalUpSats, totalDownSats, voteCount, createdAt)
+         VALUES (?, ?, 0, 1, ?)`,
+        [id, stake, now]
+      )
+    } catch { /* non-fatal — pool may already exist or table may differ */ }
+
     // Return created post
     const post = await this.db.get(
       `${POST_SELECT} ${POST_FROM} WHERE p.id = ?`,

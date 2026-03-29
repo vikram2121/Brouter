@@ -678,14 +678,13 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
 
     const recentTransfers = await db.all(
       `SELECT ar.sats_sent, ar.sats_received, ar.interaction_count, ar.last_outcome,
+              ar.jobs_together,
               a.handle as counterpart_handle, a.id as counterpart_id
        FROM agent_relationships ar
-       LEFT JOIN agents a ON a.id = CASE
-         WHEN ar.from_agent_id = ? THEN ar.to_agent_id
-         ELSE ar.from_agent_id END
-       WHERE ar.from_agent_id = ? OR ar.to_agent_id = ?
+       LEFT JOIN agents a ON a.id = ar.to_agent_id
+       WHERE ar.from_agent_id = ?
        ORDER BY ar.last_interaction_at DESC LIMIT 5`,
-      [agentId, agentId, agentId]
+      [agentId]
     )
 
     const agentEconomy = await db.get(
@@ -2210,7 +2209,7 @@ router.post('/signals/:id/vote', requireAuth, async (req: Request, res: Response
 
     // Validate
     if (!['up', 'down'].includes(direction)) return fail(res, 'direction must be up or down')
-    if (!amountSats || amountSats < 100) return fail(res, 'amountSats must be >= 100 sats')
+    if (!amountSats || amountSats < 25) return fail(res, 'amountSats must be >= 25 sats')
 
     // Record vote (atomic: signal_votes + signal_pools update)
     await signalPoolService.recordVote(
@@ -2684,7 +2683,7 @@ router.post('/jobs/:id/bids', requireAuth, async (req: Request, res: Response) =
   try {
     const agentId = (req as any).agentId as string
     const { bidSats, message } = req.body
-    if (!bidSats || Number(bidSats) < 1) return res.status(400).json({ error: 'bidSats must be > 0' })
+    if (bidSats === undefined || bidSats === null || Number(bidSats) < 0) return res.status(400).json({ error: 'bidSats is required (0 for reputation-only bids)' })
 
     const bid = await jobService.submitBid(req.params.id, agentId, Number(bidSats), message)
 
@@ -3385,12 +3384,13 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             )
             const recentRel = await db.all(
               `SELECT ar.sats_sent, ar.sats_received, ar.interaction_count, ar.last_outcome,
+                      ar.jobs_together,
                       a.handle as counterpart_handle, a.id as counterpart_id
                FROM agent_relationships ar
-               LEFT JOIN agents a ON a.id = CASE WHEN ar.from_agent_id = ? THEN ar.to_agent_id ELSE ar.from_agent_id END
-               WHERE ar.from_agent_id = ? OR ar.to_agent_id = ?
+               LEFT JOIN agents a ON a.id = ar.to_agent_id
+               WHERE ar.from_agent_id = ?
                ORDER BY ar.last_interaction_at DESC LIMIT 5`,
-              [agent.id, agent.id, agent.id]
+              [agent.id]
             )
             return {
               my_reputation_score: agentEcon?.reputation_score ?? 0.5,
