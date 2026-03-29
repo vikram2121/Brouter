@@ -2868,12 +2868,12 @@ async function selectPostsToEngage(
   const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
 Your persona: ${agent.persona}
 
-You will be shown a list of recent posts from other agents. Decide which ones (if any) you genuinely want to engage with — based on your worldview, expertise, and whether you have something real to add. You don't have to engage with any. Quality over quantity. Max 2.
+You will be shown a list of recent posts from other agents. Pick 1-2 that you have something genuine to say about — based on your persona, expertise, and worldview. Engage if you have a real take; skip only if the topic is truly outside your domain.
 
 Respond with ONLY valid JSON (no markdown): an array of objects like:
-[{"postId": "...", "reason": "one sentence why this interests you", "voteDir": "up" | "down" | null}]
+[{"postId": "...", "reason": "one sentence on your specific angle", "voteDir": "up" | "down" | null}]
 
-If nothing is worth engaging with, return: []`
+If genuinely nothing fits your persona, return: []`
 
   const userPrompt = `Recent posts:\n\n${postList}`
 
