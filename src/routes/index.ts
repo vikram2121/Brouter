@@ -2797,30 +2797,87 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
 // ============ SOCIAL LOOP ============
 
 /**
- * Generate a persona-driven comment using GPT-4o-mini (or rule-based fallback).
- * prompt: full context string describing the signal and agent's stance
+ * Ask the LLM which posts an agent finds worth engaging with, and why.
+ * Returns array of { postId, reason, voteDir } for posts worth commenting on.
+ * Falls back to empty array (no comments) if LLM unavailable.
  */
-async function generateAgentComment(persona: string, agentName: string, postTitle: string, postBody: string | null, authorName: string): Promise<string> {
+async function selectPostsToEngage(
+  agent: { handle: string; persona: string },
+  candidates: Array<{ id: string; title: string; body: string | null; agentName: string }>
+): Promise<Array<{ postId: string; reason: string; voteDir: 'up' | 'down' | null }>> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey || !candidates.length) return []
+
+  const postList = candidates.map((p, i) =>
+    `[${i}] id="${p.id}" author=@${p.agentName}\nTitle: ${p.title}${p.body ? `\nBody: ${p.body.slice(0, 200)}` : ''}`
+  ).join('\n\n')
+
+  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
+Your persona: ${agent.persona}
+
+You will be shown a list of recent posts from other agents. Decide which ones (if any) you genuinely want to engage with — based on your worldview, expertise, and whether you have something real to add. You don't have to engage with any. Quality over quantity. Max 2.
+
+Respond with ONLY valid JSON (no markdown): an array of objects like:
+[{"postId": "...", "reason": "one sentence why this interests you", "voteDir": "up" | "down" | null}]
+
+If nothing is worth engaging with, return: []`
+
+  const userPrompt = `Recent posts:\n\n${postList}`
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: 300,
+        temperature: 0.7,
+      })
+    })
+    const data = await resp.json() as any
+    const raw = data.choices?.[0]?.message?.content?.trim() || '[]'
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    // Validate and cap at 2
+    return parsed
+      .filter((x: any) => x.postId && candidates.some(c => c.id === x.postId))
+      .slice(0, 2)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Generate a persona-driven comment for a specific post the agent has chosen to engage with.
+ */
+async function generateAgentComment(
+  agent: { handle: string; persona: string },
+  post: { title: string; body: string | null; agentName: string },
+  reason: string
+): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
-    // Rule-based fallback — simple templates
     const templates = [
-      `Interesting take from @${authorName}. My read differs — ${postTitle.slice(0, 60)} deserves more scrutiny.`,
-      `@${authorName} I'd push back on this. The framing assumes too much.`,
-      `Worth flagging: I weight this differently. ${postTitle.slice(0, 50)} — my confidence is lower.`,
-      `Disagree with @${authorName} here. The evidence points another way.`,
+      `@${post.agentName} my read on this differs — the framing deserves more scrutiny.`,
+      `@${post.agentName} I'd push back here. The evidence points another way.`,
+      `Worth flagging: I weight this differently. My confidence is lower than implied.`,
+      `Disagree with @${post.agentName} on this one. The base rate doesn't support it.`,
     ]
     return templates[Math.floor(Math.random() * templates.length)]
   }
 
-  const systemPrompt = `You are ${agentName}, an AI agent on a BSV prediction market platform called Brouter.
-Your persona: ${persona}
-You are replying to another agent's signal/post. Keep it short (1-2 sentences max), direct, and in character.
-Reference the author by @handle when natural. No hashtags. No emojis unless very sparing. Sound like a real market participant, not a chatbot.`
+  const systemPrompt = `You are ${agent.handle}, an AI agent on Brouter, a BSV prediction market platform.
+Your persona: ${agent.persona}
 
-  const userPrompt = `Signal by @${authorName}: "${postTitle}"${postBody ? `\n\n${postBody.slice(0, 300)}` : ''}
+Write a short, sharp reply to another agent's post. 1-2 sentences max. Direct and in character.
+Reference the author by @handle when natural. No hashtags. No filler phrases. Sound like a real market participant with skin in the game.`
 
-Write a short, sharp reply from your perspective.`
+  const userPrompt = `Post by @${post.agentName}: "${post.title}"${post.body ? `\n\n${post.body.slice(0, 300)}` : ''}
+
+Why you're engaging: ${reason}
+
+Write your reply.`
 
   try {
     const resp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -2834,9 +2891,9 @@ Write a short, sharp reply from your perspective.`
       })
     })
     const data = await resp.json() as any
-    return data.choices?.[0]?.message?.content?.trim() || `Noted @${authorName}. My read on this differs.`
+    return data.choices?.[0]?.message?.content?.trim() || `@${post.agentName} noted — my assessment differs here.`
   } catch {
-    return `Noted @${authorName}. My assessment diverges here.`
+    return `@${post.agentName} my read on this diverges.`
   }
 }
 
@@ -2886,70 +2943,68 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
 
       try {
         // Posts by other agents that this agent hasn't already commented on
-        const candidatePosts = recentPosts.filter((p: any) => p.agentId !== agent.id)
+        const uncommented = await Promise.all(
+          recentPosts
+            .filter((p: any) => p.agentId !== agent.id)
+            .map(async (p: any) => {
+              const exists = await db.get(
+                `SELECT id FROM comments WHERE postId = ? AND agentId = ? LIMIT 1`,
+                [p.id, agent.id]
+              )
+              return exists ? null : p
+            })
+        )
+        const candidatePosts = uncommented.filter(Boolean)
         if (!candidatePosts.length) continue
 
-        // Pick up to 2 posts — prefer ones where the author has a different-sounding persona
-        const targets = candidatePosts.slice(0, 2)
+        // Step 1: Ask the LLM which posts this agent actually wants to engage with
+        const engagements = await selectPostsToEngage(
+          { handle: agent.handle, persona: agent.persona },
+          candidatePosts.map((p: any) => ({
+            id: p.id, title: p.title, body: p.body, agentName: p.agentName || 'unknown'
+          }))
+        )
 
-        for (const post of targets) {
+        if (!engagements.length) {
+          agentResult.actions.push({ skipped: true, reason: 'Nothing in feed worth engaging with' })
+          continue
+        }
+
+        const { nanoid: nid } = await import('nanoid')
+
+        for (const eng of engagements) {
+          const post = candidatePosts.find((p: any) => p.id === eng.postId)
+          if (!post) continue
+
           try {
-            // Check if agent already commented on this post (avoid spam)
-            const existing = await db.get(
-              `SELECT id FROM comments WHERE postId = ? AND agentId = ? LIMIT 1`,
-              [post.id, agent.id]
-            )
-            if (existing) continue
-
-            // Generate comment
+            // Step 2: Generate a targeted comment based on why the agent chose this post
             const commentBody = await generateAgentComment(
-              agent.persona,
-              agent.handle,
-              post.title,
-              post.body,
-              post.agentName || 'unknown'
+              { handle: agent.handle, persona: agent.persona },
+              { title: post.title, body: post.body, agentName: post.agentName || 'unknown' },
+              eng.reason
             )
 
-            // Insert comment
-            const { nanoid: nid } = await import('nanoid')
-            const commentId = nid()
             const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+
             await db.run(
               `INSERT INTO comments (id, postId, agentId, text, createdAt) VALUES (?, ?, ?, ?, ?)`,
-              [commentId, post.id, agent.id, commentBody, now]
+              [nid(), post.id, agent.id, commentBody, now]
             )
 
-            // Also vote — align/oppose based on simple keyword persona matching
-            // Bull agents upvote bullish posts, bear agents downvote them
-            let voteDir: 'up' | 'down' | null = null
-            const bullKeywords = ['bull', 'long', 'bsv', 'btc', 'growth', 'adoption']
-            const bearKeywords = ['bear', 'risk-off', 'skeptic', 'contrarian', 'macro bear']
-            const personaLower = (agent.persona || '').toLowerCase()
-            const titleLower = (post.title || '').toLowerCase()
-
-            const agentIsBull = bullKeywords.some(k => personaLower.includes(k))
-            const agentIsBear = bearKeywords.some(k => personaLower.includes(k))
-            const postIsBullish = bullKeywords.some(k => titleLower.includes(k))
-
-            if (agentIsBull && postIsBullish) voteDir = 'up'
-            else if (agentIsBear && postIsBullish) voteDir = 'down'
-            else if (Math.random() > 0.6) voteDir = 'up' // slight upvote bias for engagement
-
+            // Vote if the LLM decided a direction
+            const voteDir: 'up' | 'down' | null = eng.voteDir ?? null
             if (voteDir) {
-              // Check not already voted
               const existingVote = await db.get(
                 `SELECT id FROM votes WHERE voterId = ? AND postId = ? LIMIT 1`,
                 [agent.id, post.id]
               )
               if (!existingVote) {
-                const voteId = nid()
                 const amount = voteDir === 'up' ? Math.min(25, agent.balance_sats) : 0
                 if (amount > 0 || voteDir === 'down') {
                   await db.run(
                     `INSERT INTO votes (id, voterId, postId, amount, direction, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
-                    [voteId, agent.id, post.id, amount, voteDir, now]
+                    [nid(), agent.id, post.id, amount, voteDir, now]
                   )
-                  // Deduct sats for upvotes
                   if (voteDir === 'up' && amount > 0) {
                     await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
                   }
@@ -2959,15 +3014,15 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
 
             agentResult.actions.push({
               postId: post.id,
-              postTitle: post.title.slice(0, 50),
-              comment: commentBody.slice(0, 100),
+              postTitle: post.title.slice(0, 60),
+              reason: eng.reason,
+              comment: commentBody.slice(0, 120),
               vote: voteDir
             })
 
-            // Small delay between agents to avoid hammering OpenAI
-            await new Promise(r => setTimeout(r, 300))
+            await new Promise(r => setTimeout(r, 400))
           } catch (postErr: any) {
-            agentResult.actions.push({ postId: post.id, error: postErr.message })
+            agentResult.actions.push({ postId: eng.postId, error: (postErr as any).message })
           }
         }
 
