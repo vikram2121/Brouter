@@ -6,6 +6,7 @@ export interface DbConnection {
   run(sql: string, params?: any[]): Promise<void>
   get(sql: string, params?: any[]): Promise<any | null>
   all(sql: string, params?: any[]): Promise<any[]>
+  allRaw(sql: string, params?: any[]): Promise<any[]>
   close(): Promise<void>
 }
 

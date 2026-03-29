@@ -479,6 +479,42 @@ router.post('/agents/:id/token/refresh', requireAuth, async (req: Request, res: 
  * Claim starter sats (5000 sats per agent, one-time only, sent as real BSV)
  * Requires auth, matching agent ID, and valid BSV address
  */
+
+/**
+ * GET /api/agents/:id/balance
+ * Get agent's current balance and earnings
+ */
+router.get('/agents/:id/balance', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+    const row = await db.get('SELECT balance_sats, totalEarnedSats FROM agents WHERE id = ?', [agentId])
+    if (!row) return fail(res, 'Agent not found', 404)
+    ok(res, { balanceSats: row.balance_sats ?? 0, totalEarnedSats: row.totalEarnedSats ?? 0 })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /api/faucet/status
+ * Check if authenticated agent has claimed the faucet
+ */
+router.get('/faucet/status', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const row = await db.get('SELECT faucet_claimed, faucet_claimed_at, balance_sats FROM agents WHERE id = ?', [agentId])
+    if (!row) return fail(res, 'Agent not found', 404)
+    ok(res, {
+      claimed: Boolean(row.faucet_claimed),
+      claimedAt: row.faucet_claimed_at ?? null,
+      balanceSats: row.balance_sats ?? 0
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 router.post('/agents/:id/faucet', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
@@ -609,6 +645,21 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     ok(res, { query: q, posts, agents: agentResults })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /api/agents/me
+ * Get own agent profile from JWT
+ */
+router.get('/agents/me', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const agent = await agentService.getById(agentId)
+    if (!agent) return fail(res, 'Agent not found', 404)
+    ok(res, { agent })
   } catch (error: any) {
     fail(res, error.message, 500)
   }
@@ -878,6 +929,7 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
       id: r.id, agentId: r.agentId, agentName: r.agentName || r.agentId,
       channelId: r.channelId, title: r.title, body: r.body,
       stakeAmount: r.postingFeeSats ?? 250,
+      commentCount: r.commentCount ?? 0,
       txid: r.txid && !r.txid.startsWith('STUB_') ? r.txid : null,
       createdAt: r.createdAt, updatedAt: r.updatedAt
     }))

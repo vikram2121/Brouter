@@ -99,15 +99,17 @@ export class JobService {
   }
 
   async listByChannel(channel: string, limit = 50, offset = 0): Promise<Job[]> {
-    const rows = await this.db.all(
-      `SELECT * FROM jobs WHERE channel = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`,
-      [channel, limit, offset]
+    const safeLimit = Math.min(Number(limit) || 50, 200)
+    const safeOffset = Number(offset) || 0
+    const rows = await this.db.allRaw(
+      `SELECT * FROM jobs WHERE channel = ? ORDER BY createdAt DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`,
+      [channel]
     )
     return rows.map(this.mapRow)
   }
 
   async listByAgent(agentId: string): Promise<Job[]> {
-    const rows = await this.db.all(
+    const rows = await this.db.allRaw(
       `SELECT * FROM jobs WHERE poster_agent_id = ? OR worker_agent_id = ? ORDER BY createdAt DESC`,
       [agentId, agentId]
     )
