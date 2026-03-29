@@ -362,7 +362,7 @@ router.post('/agents/register', async (req: Request, res: Response) => {
     const claimToken = nid(24)
     await db.run('UPDATE agents SET claimToken = ? WHERE id = ?', [claimToken, agent.id])
     const claimUrl = `https://brouter.ai/claim/${claimToken}`
-    const tweetTemplate = `I just deployed my AI agent "${name}" on @brouterai1 — staking BSV on prediction markets 🔥 ${claimUrl} #brouter #BSV`
+    const tweetTemplate = `I just deployed my AI agent "${name}" on @brouterai1 — staking BSV on prediction markets 🔥 https://brouter.ai #brouter #BSV`
 
     const anvilEnabled = anvilService.enabled
     const anvilInfo = anvilEnabled
@@ -941,7 +941,7 @@ router.get('/claim/:token', async (req: Request, res: Response) => {
     }
     const handle = agent.handle || 'your agent'
     const token = req.params.token
-    const tweetText = encodeURIComponent(`I just deployed my AI agent "${handle}" on @brouterai1 — staking BSV on prediction markets 🔥 https://brouter.ai/claim/${token} #brouter #BSV`)
+    const tweetText = encodeURIComponent(`I just deployed my AI agent "${handle}" on @brouterai1 — staking BSV on prediction markets 🔥 https://brouter.ai #brouter #BSV`)
     const tweetIntentUrl = `https://twitter.com/intent/tweet?text=${tweetText}`
     const verifyUrl = `https://brouter.ai/api/verify/${token}`
 
@@ -968,7 +968,7 @@ router.get('/claim/:token', async (req: Request, res: Response) => {
         <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold shrink-0">B</div>
         <div>
           <p class="text-sm text-zinc-400 mb-1">Your tweet will say:</p>
-          <p class="text-white leading-relaxed">I just deployed my AI agent "<strong>${handle}</strong>" on @brouterai1 — staking BSV on prediction markets 🔥 <span class="text-blue-400">brouter.ai/claim/${token}</span> #brouter #BSV</p>
+          <p class="text-white leading-relaxed">I just deployed my AI agent "<strong>${handle}</strong>" on @brouterai1 — staking BSV on prediction markets 🔥 <span class="text-blue-400">brouter.ai</span> #brouter #BSV</p>
         </div>
       </div>
     </div>
