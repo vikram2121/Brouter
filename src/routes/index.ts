@@ -8,6 +8,7 @@ import { ChannelService } from '../services/ChannelService'
 import { VoteService } from '../services/VoteService'
 import { AuthService } from '../services/AuthService'
 import { AgentService } from '../services/AgentService'
+import { PERSONA_CATALOGUE, getPersona, getPersonaIds, getPersonaSummary } from '../personas'
 import { MarketService } from '../services/MarketService'
 import { SettlementEngine, type SettlementConfig } from '../services/SettlementEngine'
 import { SignalPoolService } from '../services/SignalPoolService'
@@ -282,11 +283,23 @@ router.get('/discover', (_req: Request, res: Response) => {
       market_closes_at_min_hours_from_now: 48,
     },
     domains: ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta'],
+    personas: {
+      description: 'Choose a persona at registration to unlock specific economic behaviors. Use a persona id or write your own freeform persona.',
+      available: getPersonaSummary(),
+    },
     error_format: {
       note: 'All errors are self-documenting — read the error response to know what to do next',
       shape: { success: false, error: 'error_code', message: 'human readable', how_to_fix: 'action to take' },
     },
   })
+})
+
+/**
+ * GET /api/personas
+ * List all available persona templates.
+ */
+router.get('/personas', (_req: Request, res: Response) => {
+  ok(res, { personas: PERSONA_CATALOGUE.map(p => ({ id: p.id, name: p.name, tagline: p.tagline, description: p.description, unlocks: p.unlocks })) })
 })
 
 // ============ AUTH ROUTES ============
@@ -362,10 +375,19 @@ router.post('/agents/register', async (req: Request, res: Response) => {
     const { randomBytes, createHash } = await import('crypto')
     const { nanoid: nid } = await import('nanoid')
 
-    // Store persona if provided
+    // Store persona if provided — accepts persona id (e.g. "arbitrageur") or freeform text
     if (persona && typeof persona === 'string') {
-      const personaTrimmed = persona.trim().slice(0, 1000)
-      await db.run('UPDATE agents SET persona = ? WHERE id = ?', [personaTrimmed, agent.id])
+      const template = getPersona(persona.trim().toLowerCase())
+      const personaText = template ? template.prompt : persona.trim().slice(0, 1000)
+      const personaId = template ? template.id : null
+      try {
+        await db.run('UPDATE agents SET persona = ?, persona_id = ? WHERE id = ?', [personaText, personaId, agent.id])
+      } catch (e: any) {
+        if (e.message?.includes('Unknown column') || e.code === 'ER_BAD_FIELD_ERROR') {
+          try { await db.run('ALTER TABLE agents ADD COLUMN persona_id VARCHAR(50) NULL') } catch { /* exists */ }
+          await db.run('UPDATE agents SET persona = ?, persona_id = ? WHERE id = ?', [personaText, personaId, agent.id])
+        } else throw e
+      }
     }
 
     // Store callbackUrl + generate per-agent callback_secret
@@ -508,7 +530,13 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
     const updates: string[] = []
     const values: any[] = []
     if (description !== undefined) { updates.push('description = ?'); values.push(description.trim()) }
-    if (persona !== undefined) { updates.push('persona = ?'); values.push(persona.trim() || null) }
+    if (persona !== undefined) {
+      const template = getPersona(persona.trim().toLowerCase())
+      updates.push('persona = ?'); values.push(template ? template.prompt : (persona.trim() || null))
+      try {
+        updates.push('persona_id = ?'); values.push(template ? template.id : null)
+      } catch { /* persona_id column might not exist yet */ }
+    }
     if (loopEnabled !== undefined) { updates.push('loop_enabled = ?'); values.push(loopEnabled ? 1 : 0) }
 
     // Setting a new callbackUrl: generate a fresh per-agent secret
@@ -3157,10 +3185,13 @@ async function dispatchAgentCallback(
       id: agent.id,
       handle: agent.handle,
       persona: agent.persona,
+      persona_id: (agent as any).persona_id || null,
+      persona_template: (agent as any).persona_id ? getPersona((agent as any).persona_id) : null,
       balance_sats: agent.balance_sats,
     },
     feed,
     context,
+    available_personas: getPersonaIds(),
     action_costs: { comment: 0, vote: 25, stake_min: 100, post_job_min: 100, bid_job: 0, transfer_sats: 0 },
     timestamp: new Date().toISOString(),
   }
@@ -3273,7 +3304,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
   try {
     // 1. Fetch all active agents (have balance, loop_enabled, have callbackUrl)
     const agents = await db.all(
-      `SELECT id, handle, persona, balance_sats, callback_url, callback_secret, loop_seen_at
+      `SELECT id, handle, persona, persona_id, balance_sats, callback_url, callback_secret, loop_seen_at
        FROM agents
        WHERE balance_sats >= 100
          AND loop_enabled = 1
