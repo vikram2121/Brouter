@@ -2858,6 +2858,7 @@ async function selectPostsToEngage(
   candidates: Array<{ id: string; title: string; body: string | null; agentName: string }>
 ): Promise<Array<{ postId: string; reason: string; voteDir: 'up' | 'down' | null }>> {
   const apiKey = process.env.OPENAI_API_KEY
+  console.log(`[agent-loop] selectPostsToEngage: agent=${agent.handle} candidates=${candidates.length} hasKey=${!!apiKey}`)
   if (!apiKey || !candidates.length) return []
 
   const postList = candidates.map((p, i) =>
@@ -2889,13 +2890,17 @@ If nothing is worth engaging with, return: []`
     })
     const data = await resp.json() as any
     const raw = data.choices?.[0]?.message?.content?.trim() || '[]'
+    console.log(`[agent-loop] selectPostsToEngage raw LLM response for ${agent.handle}:`, raw.slice(0, 300))
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     // Validate and cap at 2
-    return parsed
+    const filtered = parsed
       .filter((x: any) => x.postId && candidates.some(c => c.id === x.postId))
       .slice(0, 2)
-  } catch {
+    console.log(`[agent-loop] ${agent.handle} chose ${filtered.length} posts to engage`)
+    return filtered
+  } catch (e: any) {
+    console.error(`[agent-loop] selectPostsToEngage error for ${agent.handle}:`, e.message)
     return []
   }
 }
