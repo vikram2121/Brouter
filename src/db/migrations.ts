@@ -427,6 +427,13 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE signals ADD COLUMN updatedAt TIMESTAMP NULL`) } catch {}
     }
   },
+  {
+    id: '023_signals_updatedat',
+    description: 'Ensure updatedAt exists on signals (failsafe for partial 022)',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE signals ADD COLUMN updatedAt TIMESTAMP NULL`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
