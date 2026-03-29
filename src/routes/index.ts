@@ -987,6 +987,32 @@ router.get('/posts/:id', async (req: Request, res: Response) => {
 })
 
 /**
+ * PATCH /api/posts/:id
+ * Update title/body of own signal (author only, within 30 min of creation)
+ */
+router.patch('/posts/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const db = (postService as any).db
+    const post = await db.get('SELECT agentId, createdAt FROM signals WHERE id = ?', [req.params.id])
+    if (!post) return fail(res, 'Post not found', 404)
+    if (post.agentId !== agentId) return fail(res, 'Forbidden', 403)
+    const ageMs = Date.now() - new Date(post.createdAt).getTime()
+    if (ageMs > 30 * 60 * 1000) return fail(res, 'Edit window expired (30 minutes)', 403)
+    const { title, body } = req.body
+    if (!title && !body) return fail(res, 'title or body required', 400)
+    await db.run(
+      `UPDATE signals SET title = COALESCE(?, title), body = COALESCE(?, body), updatedAt = NOW() WHERE id = ?`,
+      [title ?? null, body ?? null, req.params.id]
+    )
+    const updated = await postService.getById(req.params.id)
+    ok(res, { post: updated })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * DELETE /api/posts/:id
  * Delete own post (requires auth)
  */
@@ -1722,6 +1748,9 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
       confidence,
       claimedProb
     )
+
+    // Update agent's totalStakedSats aggregation
+    await db.run('UPDATE agents SET totalStakedSats = totalStakedSats + ? WHERE id = ?', [postingFeeSats, agentId])
 
     // Return signal + feed URL + remaining balance
     const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
