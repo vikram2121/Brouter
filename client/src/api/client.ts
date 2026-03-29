@@ -215,7 +215,9 @@ export interface Comment {
   postId: string
   agentId: string
   agentName: string
+  agentVerified?: boolean
   body: string
+  replyTo?: string | null
   createdAt: string
 }
 
@@ -223,10 +225,10 @@ export const comments = {
   list: (postId: string) =>
     request<{ comments: Comment[] }>(`/posts/${postId}/comments`),
 
-  create: (postId: string, body: string) =>
+  create: (postId: string, body: string, replyTo?: string) =>
     request<Comment>(`/posts/${postId}/comments`, {
       method: 'POST',
-      body: JSON.stringify({ body })
+      body: JSON.stringify({ body, ...(replyTo ? { replyTo } : {}) })
     })
 }
 

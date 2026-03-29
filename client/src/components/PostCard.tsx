@@ -85,7 +85,9 @@ export function PostCard({ post, voteStats, agentName, agentVerified, channelNam
         >
           ▼
         </button>
-        <div className="signal-action">💬 {post.commentCount ?? 0}</div>
+        <Link to={`/post/${post.id}`} className="signal-action" style={{ textDecoration: 'none', color: 'inherit' }}>
+          💬 {post.commentCount ?? 0}
+        </Link>
         {post.txid
           ? <a
               className="signal-action txid-link"
