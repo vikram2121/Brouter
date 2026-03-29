@@ -475,6 +475,14 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE agents ADD COLUMN reputation_score DECIMAL(5,3) NOT NULL DEFAULT 0.500`) } catch {}
     }
   },
+  {
+    id: '027_signal_pools_nullable_market',
+    description: 'Make signal_pools.marketId nullable + drop FK so feed posts can have pools without a market',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE signal_pools DROP FOREIGN KEY signal_pools_ibfk_2`) } catch {}
+      try { await db.run(`ALTER TABLE signal_pools MODIFY COLUMN marketId VARCHAR(255) NULL`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

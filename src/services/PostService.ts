@@ -59,13 +59,14 @@ export class PostService {
     )
 
     // Create signal_pool so voting works on this post
+    // marketId is NULL for feed-only posts (migration 027 makes it nullable)
     try {
       await this.db.run(
-        `INSERT INTO signal_pools (signalId, totalUpSats, totalDownSats, voteCount, createdAt)
-         VALUES (?, ?, 0, 1, ?)`,
-        [id, stake, now]
+        `INSERT INTO signal_pools (signalId, marketId, totalSats, upSats, downSats, createdAt)
+         VALUES (?, NULL, ?, ?, 0, ?)`,
+        [id, stake, stake, now]
       )
-    } catch { /* non-fatal — pool may already exist or table may differ */ }
+    } catch { /* non-fatal — pool may already exist */ }
 
     // Return created post
     const post = await this.db.get(
