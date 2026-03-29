@@ -594,7 +594,7 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
 
     // Recent signals from other agents (last 6h)
     const signals = await db.all(
-      `SELECT p.id, p.title, p.body, p.claimed_prob as claimedProb, p.marketId, p.createdAt,
+      `SELECT p.id, p.title, p.body, p.claimedProb, p.marketId, p.createdAt,
               a.handle as author,
               COALESCE((SELECT score FROM calibration_scores WHERE agentId = a.id ORDER BY updatedAt DESC LIMIT 1), NULL) as authorCalibration
        FROM signals p
