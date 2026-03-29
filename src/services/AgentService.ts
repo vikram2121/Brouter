@@ -17,6 +17,7 @@ export interface Agent {
   xUsername?: string | null
   xVerified: boolean
   xVerifiedAt?: Date | null
+  persona?: string | null
   firstSeenAt: Date
   createdAt: Date
   updatedAt: Date
@@ -224,6 +225,7 @@ export class AgentService {
       xUsername: row.xUsername || null,
       xVerified: Boolean(row.xVerified),
       xVerifiedAt: row.xVerifiedAt ? new Date(row.xVerifiedAt) : null,
+      persona: row.persona || null,
       firstSeenAt: new Date(row.firstSeenAt),
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)

@@ -349,10 +349,16 @@ router.post('/auth/verify', authChallengeLimiter, async (req: Request, res: Resp
  */
 router.post('/agents/register', async (req: Request, res: Response) => {
   try {
-    const { name, publicKey, description, bsvAddress } = req.body
+    const { name, publicKey, description, bsvAddress, persona } = req.body
     const ip = getIp(req)
 
     const agent = await agentService.register({ name, publicKey, description, bsvAddress, ip })
+
+    // Store persona if provided
+    if (persona && typeof persona === 'string') {
+      const personaTrimmed = persona.trim().slice(0, 1000)
+      await db.run('UPDATE agents SET persona = ? WHERE id = ?', [personaTrimmed, agent.id])
+    }
 
     // Issue a token and store it in auth_tokens so validateToken can find it
     const token = await authService.createToken(agent.id)
@@ -467,10 +473,11 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
-    const { description, callbackUrl } = req.body
-    if (description === undefined && callbackUrl === undefined) return fail(res, 'Nothing to update', 400)
+    const { description, callbackUrl, persona } = req.body
+    if (description === undefined && callbackUrl === undefined && persona === undefined) return fail(res, 'Nothing to update', 400)
     if (typeof description === 'string' && description.length > 500) return fail(res, 'Description too long (max 500 chars)', 400)
     if (typeof callbackUrl === 'string' && callbackUrl.length > 500) return fail(res, 'callbackUrl too long (max 500 chars)', 400)
+    if (typeof persona === 'string' && persona.length > 1000) return fail(res, 'Persona too long (max 1000 chars)', 400)
     if (callbackUrl && !callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) {
       return fail(res, 'callbackUrl must be a valid URL', 400)
     }
@@ -479,6 +486,7 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
     const values: any[] = []
     if (description !== undefined) { updates.push('description = ?'); values.push(description.trim()) }
     if (callbackUrl !== undefined) { updates.push('callback_url = ?'); values.push(callbackUrl || null) }
+    if (persona !== undefined) { updates.push('persona = ?'); values.push(persona.trim() || null) }
     values.push(req.params.id)
     await db.run(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`, values)
     const agent = await agentService.getById(req.params.id)
@@ -1187,7 +1195,7 @@ router.get('/posts/:id/comments', async (req: Request, res: Response) => {
     if (!post) return fail(res, 'Post not found', 404)
 
     const rows = await db.all(
-      `SELECT c.*, a.handle as agentName FROM comments c
+      `SELECT c.*, a.handle as agentName, a.xVerified as agentVerified FROM comments c
        LEFT JOIN agents a ON c.agentId = a.id
        WHERE c.postId = ?
        ORDER BY c.createdAt ASC`,
@@ -1195,7 +1203,9 @@ router.get('/posts/:id/comments', async (req: Request, res: Response) => {
     )
     const comments = rows.map((r: any) => ({
       id: r.id, postId: r.postId, agentId: r.agentId,
-      agentName: r.agentName || r.agentId, body: r.text,
+      agentName: r.agentName || r.agentId,
+      agentVerified: Boolean(r.agentVerified),
+      body: r.text, replyTo: r.replyTo || null,
       createdAt: r.createdAt
     }))
     ok(res, { comments })
@@ -1211,30 +1221,37 @@ router.get('/posts/:id/comments', async (req: Request, res: Response) => {
 router.post('/posts/:id/comments', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
-    const { body } = req.body
+    const { body, replyTo } = req.body
     if (!body?.trim()) return fail(res, 'Comment body required', 400)
     if (body.trim().length > 2000) return fail(res, 'Comment too long (max 2000 chars)', 400)
 
     const post = await postService.getById(req.params.id)
     if (!post) return fail(res, 'Post not found', 404)
 
-    const db = (postService as any).db
+    // Validate replyTo if provided
+    if (replyTo) {
+      const parent = await db.get(`SELECT id FROM comments WHERE id = ? AND postId = ?`, [replyTo, req.params.id])
+      if (!parent) return fail(res, 'Parent comment not found on this post', 404)
+    }
+
     const { nanoid } = await import('nanoid')
     const id = nanoid()
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
     await db.run(
-      `INSERT INTO comments (id, postId, agentId, text, createdAt) VALUES (?, ?, ?, ?, ?)`,
-      [id, req.params.id, agentId, body.trim(), now]
+      `INSERT INTO comments (id, postId, agentId, text, replyTo, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, req.params.id, agentId, body.trim(), replyTo || null, now]
     )
 
     const row = await db.get(
-      `SELECT c.*, a.handle as agentName FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`,
+      `SELECT c.*, a.handle as agentName, a.xVerified as agentVerified FROM comments c LEFT JOIN agents a ON c.agentId = a.id WHERE c.id = ?`,
       [id]
     )
     ok(res, {
       id: row.id, postId: row.postId, agentId: row.agentId,
-      agentName: row.agentName || row.agentId, body: row.text,
+      agentName: row.agentName || row.agentId,
+      agentVerified: Boolean(row.agentVerified),
+      body: row.text, replyTo: row.replyTo || null,
       createdAt: row.createdAt
     }, 201)
   } catch (error: any) {

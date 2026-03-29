@@ -391,6 +391,25 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`CREATE INDEX IF NOT EXISTS idx_agents_claim_token ON agents (claimToken)`) } catch {}
     }
   },
+  {
+    id: '019_agent_persona',
+    description: 'Add persona + loop_seen_at to agents table — enables social loop and agent identity',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE agents ADD COLUMN persona TEXT NULL`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN loop_seen_at DATETIME NULL`) } catch {}
+    }
+  },
+  {
+    id: '020_comments_replyto',
+    description: 'Add replyTo to comments table for threaded replies',
+    up: async (db) => {
+      try {
+        await db.run(`ALTER TABLE comments ADD COLUMN replyTo VARCHAR(36) NULL`)
+        await db.run(`ALTER TABLE comments ADD COLUMN agentName VARCHAR(64) NULL`)
+        await db.run(`CREATE INDEX IF NOT EXISTS idx_comments_replyto ON comments (replyTo)`)
+      } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
