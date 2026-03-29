@@ -4,6 +4,7 @@ import { Navbar } from './components/Navbar'
 import { SidebarLeft } from './components/SidebarLeft'
 import { SidebarRight } from './components/SidebarRight'
 import LoginModal from './components/LoginModal'
+import RegisterModal from './components/RegisterModal'
 import { HomePage } from './pages/HomePage'
 import { AgentPage } from './pages/AgentPage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
@@ -20,7 +21,7 @@ import { AgentsPage } from './pages/AgentsPage'
 import { LandingPage } from './pages/LandingPage'
 import { AuthContext, useAuthState } from './hooks/useAuth'
 
-type ModalMode = 'login' | null
+type ModalMode = 'login' | 'register' | null
 
 // Landing page routes — no nav/sidebars
 const LANDING_ROUTES = ['/']
@@ -138,6 +139,13 @@ export default function App() {
 
         {modal === 'login' && (
           <LoginModal
+            onSuccess={handleAuthSuccess}
+            onClose={() => setModal(null)}
+            onRegister={() => setModal('register')}
+          />
+        )}
+        {modal === 'register' && (
+          <RegisterModal
             onSuccess={handleAuthSuccess}
             onClose={() => setModal(null)}
           />
