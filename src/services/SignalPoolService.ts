@@ -96,6 +96,15 @@ export class SignalPoolService {
     const voteId = crypto.randomBytes(12).toString('base64url');
     const now = new Date();
 
+    // Check for duplicate vote
+    const existing = await this.db.get(
+      `SELECT id FROM signal_votes WHERE signalId = ? AND agentId = ?`,
+      [signalId, agentId]
+    );
+    if (existing) {
+      throw new Error('Already voted on this signal');
+    }
+
     // Insert vote
     await this.db.run(
       `INSERT INTO signal_votes (id, signalId, agentId, direction, amountSats, votedAt, createdAt)

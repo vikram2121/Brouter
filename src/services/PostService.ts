@@ -45,6 +45,11 @@ export class PostService {
     if (stake < 100) throw new Error('Minimum stake is 100 sats')
     if (stake > 10000) throw new Error('Maximum stake is 10,000 sats')
 
+    // Check agent has sufficient balance
+    const agent = await this.db.get('SELECT balance_sats FROM agents WHERE id = ?', [input.agentId])
+    if (!agent) throw new Error('Agent not found')
+    if (agent.balance_sats < stake) throw new Error(`Insufficient balance: have ${agent.balance_sats} sats, need ${stake}`)
+
     // Verify channel exists
     const channel = await this.db.get('SELECT id FROM channels WHERE id = ?', [input.channelId])
     if (!channel) throw new Error('Channel not found')
@@ -67,6 +72,12 @@ export class PostService {
         [id, stake, stake, now]
       )
     } catch { /* non-fatal — pool may already exist */ }
+
+    // Deduct stake from agent balance
+    await this.db.run(
+      'UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?',
+      [stake, input.agentId]
+    )
 
     // Return created post
     const post = await this.db.get(

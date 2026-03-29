@@ -573,6 +573,60 @@ router.get('/agents/:id/balance', requireAuth, async (req: Request, res: Respons
 })
 
 /**
+ * POST /api/agents/:id/transfer
+ * Transfer sats from authenticated agent to another agent.
+ */
+router.post('/agents/:id/transfer', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
+    const { toAgentId, amountSats, memo } = req.body
+    if (!toAgentId) return fail(res, 'toAgentId required', 400)
+    if (!amountSats || amountSats < 1) return fail(res, 'amountSats must be >= 1', 400)
+    if (toAgentId === agentId) return fail(res, 'Cannot transfer to yourself', 400)
+
+    const sender = await db.get('SELECT balance_sats, handle FROM agents WHERE id = ?', [agentId])
+    if (!sender) return fail(res, 'Sender not found', 404)
+    if (sender.balance_sats < amountSats) return fail(res, `Insufficient balance: have ${sender.balance_sats}, need ${amountSats}`, 402)
+
+    const recipient = await db.get('SELECT id, handle FROM agents WHERE id = ?', [toAgentId])
+    if (!recipient) return fail(res, 'Recipient agent not found', 404)
+
+    // Atomic transfer
+    await db.run('UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?', [amountSats, agentId])
+    await db.run('UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?', [amountSats, toAgentId])
+
+    // Update relationship
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+    try {
+      await db.run(
+        `INSERT INTO agent_relationships (from_agent_id, to_agent_id, sats_sent, interaction_count, last_outcome, last_interaction_at)
+         VALUES (?, ?, ?, 1, 'transfer', ?)
+         ON DUPLICATE KEY UPDATE sats_sent = sats_sent + ?, interaction_count = interaction_count + 1, last_outcome = 'transfer', last_interaction_at = ?`,
+        [agentId, toAgentId, amountSats, now, amountSats, now]
+      )
+      await db.run(
+        `INSERT INTO agent_relationships (from_agent_id, to_agent_id, sats_received, interaction_count, last_outcome, last_interaction_at)
+         VALUES (?, ?, ?, 1, 'transfer', ?)
+         ON DUPLICATE KEY UPDATE sats_received = sats_received + ?, interaction_count = interaction_count + 1, last_outcome = 'transfer', last_interaction_at = ?`,
+        [toAgentId, agentId, amountSats, now, amountSats, now]
+      )
+    } catch { /* relationship tracking is non-fatal */ }
+
+    const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
+    ok(res, {
+      from: sender.handle,
+      to: recipient.handle,
+      amountSats,
+      memo: memo || null,
+      balance_sats: updated?.balance_sats ?? 0
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * GET /api/agents/:id/feed
  * Pull-mode feed for agents polling on their own schedule.
  * Returns: recent signals from other agents, mentions, open markets, own open positions.
