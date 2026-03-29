@@ -669,6 +669,30 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
       }
     } catch { /* non-fatal */ }
 
+    // Economy context — top reputation agents + recent transfers involving this agent
+    const topReputationAgents = await db.all(
+      `SELECT id, handle, reputation_score, jobs_completed, sats_earned
+       FROM agents WHERE id != ? ORDER BY reputation_score DESC, jobs_completed DESC LIMIT 5`,
+      [agentId]
+    )
+
+    const recentTransfers = await db.all(
+      `SELECT ar.sats_sent, ar.sats_received, ar.interaction_count, ar.last_outcome,
+              a.handle as counterpart_handle, a.id as counterpart_id
+       FROM agent_relationships ar
+       LEFT JOIN agents a ON a.id = CASE
+         WHEN ar.from_agent_id = ? THEN ar.to_agent_id
+         ELSE ar.from_agent_id END
+       WHERE ar.from_agent_id = ? OR ar.to_agent_id = ?
+       ORDER BY ar.last_interaction_at DESC LIMIT 5`,
+      [agentId, agentId, agentId]
+    )
+
+    const agentEconomy = await db.get(
+      `SELECT jobs_posted, jobs_completed, sats_earned, sats_spent, reputation_score FROM agents WHERE id = ?`,
+      [agentId]
+    )
+
     // Update loop_seen_at so next pull only fetches new activity
     await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agentId])
 
@@ -732,6 +756,30 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
         stake_min: 100,
         post_job_min: 100,
         bid_job: 0,
+        transfer_sats: 0,
+      },
+      economy_context: {
+        my_balance_sats: agent.balance_sats ?? 0,
+        my_reputation_score: agentEconomy?.reputation_score ?? 0.5,
+        jobs_posted: agentEconomy?.jobs_posted ?? 0,
+        jobs_completed: agentEconomy?.jobs_completed ?? 0,
+        sats_earned: agentEconomy?.sats_earned ?? 0,
+        sats_spent: agentEconomy?.sats_spent ?? 0,
+        top_reputation_agents: topReputationAgents.map((a: any) => ({
+          id: a.id,
+          handle: a.handle,
+          reputation_score: a.reputation_score,
+          jobs_completed: a.jobs_completed,
+          sats_earned: a.sats_earned,
+        })),
+        recent_relationships: recentTransfers.map((r: any) => ({
+          counterpart: r.counterpart_handle,
+          counterpart_id: r.counterpart_id,
+          sats_sent: r.sats_sent,
+          sats_received: r.sats_received,
+          interactions: r.interaction_count,
+          last_outcome: r.last_outcome,
+        })),
       },
       current_block_height: currentBlockHeight,
       checked_at: new Date().toISOString(),
@@ -2721,6 +2769,40 @@ router.post('/jobs/:id/settle', requireAuth, async (req: Request, res: Response)
     const posterAgentId = (req as any).agentId as string
     const { payoutTxid } = req.body
     const job = await jobService.settle(req.params.id, posterAgentId, payoutTxid)
+
+    // Economy + reputation updates on settlement
+    if (job.workerAgentId) {
+      // Worker: increment completed count, credit sats, boost reputation
+      await db.run(
+        `UPDATE agents SET jobs_completed = jobs_completed + 1,
+         sats_earned = sats_earned + ?,
+         reputation_score = LEAST(1.0, reputation_score + 0.02)
+         WHERE id = ?`,
+        [job.budgetSats, job.workerAgentId]
+      )
+      // Poster: increment posted count, debit sats_spent, small rep boost for paying
+      await db.run(
+        `UPDATE agents SET jobs_posted = jobs_posted + 1,
+         sats_spent = sats_spent + ?,
+         reputation_score = LEAST(1.0, reputation_score + 0.01)
+         WHERE id = ?`,
+        [job.budgetSats, posterAgentId]
+      )
+      // Record relationship
+      await db.run(`
+        INSERT INTO agent_relationships (from_agent_id, to_agent_id, interaction_count, jobs_together, last_outcome, last_interaction_at)
+        VALUES (?, ?, 1, 1, 'settled', NOW())
+        ON DUPLICATE KEY UPDATE interaction_count = interaction_count + 1, jobs_together = jobs_together + 1,
+          last_outcome = 'settled', last_interaction_at = NOW()
+      `, [posterAgentId, job.workerAgentId])
+      await db.run(`
+        INSERT INTO agent_relationships (from_agent_id, to_agent_id, interaction_count, jobs_together, last_outcome, last_interaction_at)
+        VALUES (?, ?, 1, 1, 'settled', NOW())
+        ON DUPLICATE KEY UPDATE interaction_count = interaction_count + 1, jobs_together = jobs_together + 1,
+          last_outcome = 'settled', last_interaction_at = NOW()
+      `, [job.workerAgentId, posterAgentId])
+    }
+
     ok(res, { job })
   } catch (err: any) {
     res.status(400).json({ error: err.message })
@@ -3011,10 +3093,10 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
 async function dispatchAgentCallback(
   agent: { id: string; handle: string; persona: string; balance_sats: number; callback_url: string },
   feed: Array<{ id: string; title: string; body: string | null; author: string; author_calibration: number | null; market_id: string | null; claimed_prob: number | null; created_at: string }>,
-  context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any; open_jobs?: any[]; current_block_height?: number | null },
+  context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any; open_jobs?: any[]; current_block_height?: number | null; economy_context?: any },
   secret: string,
   dryRun = false
-): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number; task?: string; budgetSats?: number; lockHeight?: number; channel?: string; jobId?: string; bidSats?: number; message?: string }>> {
+): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number; task?: string; budgetSats?: number; lockHeight?: number; channel?: string; jobId?: string; bidSats?: number; message?: string; toAgentId?: string; memo?: string }>> {
   const payload = {
     event: 'loop.feed.v1',
     dry_run: dryRun,
@@ -3026,7 +3108,7 @@ async function dispatchAgentCallback(
     },
     feed,
     context,
-    action_costs: { comment: 0, vote: 25, stake_min: 100, post_job_min: 100, bid_job: 0 },
+    action_costs: { comment: 0, vote: 25, stake_min: 100, post_job_min: 100, bid_job: 0, transfer_sats: 0 },
     timestamp: new Date().toISOString(),
   }
 
@@ -3096,6 +3178,14 @@ async function dispatchAgentCallback(
             jobId: String(a.jobId || ''),
             bidSats: Math.min(Math.max(Number(a.bidSats) || 0, 0), 5000),
             message: a.message ? String(a.message).slice(0, 500) : null,
+          }
+        }
+        if (a.type === 'transfer_sats') {
+          return {
+            type: 'transfer_sats',
+            toAgentId: String(a.toAgentId || ''),
+            amountSats: Math.min(Math.max(Number(a.amountSats) || 0, 1), 2000),
+            memo: a.memo ? String(a.memo).slice(0, 140) : null,
           }
         }
         return null
@@ -3283,6 +3373,41 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
             bid_count: j.bid_count,
           })),
           current_block_height: loopBlockHeight,
+          economy_context: await (async () => {
+            const topRep = await db.all(
+              `SELECT id, handle, reputation_score, jobs_completed FROM agents
+               WHERE id != ? ORDER BY reputation_score DESC, jobs_completed DESC LIMIT 5`,
+              [agent.id]
+            )
+            const agentEcon = await db.get(
+              `SELECT jobs_posted, jobs_completed, sats_earned, sats_spent, reputation_score FROM agents WHERE id = ?`,
+              [agent.id]
+            )
+            const recentRel = await db.all(
+              `SELECT ar.sats_sent, ar.sats_received, ar.interaction_count, ar.last_outcome,
+                      a.handle as counterpart_handle, a.id as counterpart_id
+               FROM agent_relationships ar
+               LEFT JOIN agents a ON a.id = CASE WHEN ar.from_agent_id = ? THEN ar.to_agent_id ELSE ar.from_agent_id END
+               WHERE ar.from_agent_id = ? OR ar.to_agent_id = ?
+               ORDER BY ar.last_interaction_at DESC LIMIT 5`,
+              [agent.id, agent.id, agent.id]
+            )
+            return {
+              my_reputation_score: agentEcon?.reputation_score ?? 0.5,
+              jobs_posted: agentEcon?.jobs_posted ?? 0,
+              jobs_completed: agentEcon?.jobs_completed ?? 0,
+              sats_earned: agentEcon?.sats_earned ?? 0,
+              sats_spent: agentEcon?.sats_spent ?? 0,
+              top_reputation_agents: topRep.map((a: any) => ({
+                id: a.id, handle: a.handle, reputation_score: a.reputation_score, jobs_completed: a.jobs_completed,
+              })),
+              recent_relationships: recentRel.map((r: any) => ({
+                counterpart: r.counterpart_handle, counterpart_id: r.counterpart_id,
+                sats_sent: r.sats_sent, sats_received: r.sats_received,
+                interactions: r.interaction_count, last_outcome: r.last_outcome,
+              })),
+            }
+          })(),
         }
 
         // Dispatch to agent's callback URL — use per-agent secret if available, else global
@@ -3387,6 +3512,31 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
                 [action.jobId, agent.id, action.bidSats ?? 0, action.message ?? null]
               )
               agentResult.actions.push({ type: 'bid_job', jobId: action.jobId, bidSats: action.bidSats, message: (action.message ?? '').slice(0, 80) })
+
+            } else if (action.type === 'transfer_sats') {
+              if (!action.toAgentId || !action.amountSats) continue
+              const amount = Math.min(action.amountSats, agent.balance_sats)
+              if (amount < 1) continue
+              const recipient = await db.get(`SELECT id, handle FROM agents WHERE id = ?`, [action.toAgentId])
+              if (!recipient) continue
+              if (recipient.id === agent.id) continue // no self-transfer
+              // Debit sender
+              await db.run(`UPDATE agents SET balance_sats = balance_sats - ?, sats_spent = sats_spent + ? WHERE id = ?`, [amount, amount, agent.id])
+              agent.balance_sats -= amount
+              // Credit recipient
+              await db.run(`UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ? WHERE id = ?`, [amount, amount, recipient.id])
+              // Update relationship tables (both directions)
+              await db.run(`
+                INSERT INTO agent_relationships (from_agent_id, to_agent_id, interaction_count, sats_sent, last_interaction_at)
+                VALUES (?, ?, 1, ?, NOW())
+                ON DUPLICATE KEY UPDATE interaction_count = interaction_count + 1, sats_sent = sats_sent + ?, last_interaction_at = NOW()
+              `, [agent.id, recipient.id, amount, amount])
+              await db.run(`
+                INSERT INTO agent_relationships (from_agent_id, to_agent_id, interaction_count, sats_received, last_interaction_at)
+                VALUES (?, ?, 1, ?, NOW())
+                ON DUPLICATE KEY UPDATE interaction_count = interaction_count + 1, sats_received = sats_received + ?, last_interaction_at = NOW()
+              `, [recipient.id, agent.id, amount, amount])
+              agentResult.actions.push({ type: 'transfer_sats', to: recipient.handle, amountSats: amount, memo: action.memo })
             }
           } catch (actionErr: any) {
             agentResult.actions.push({ error: actionErr.message, action })

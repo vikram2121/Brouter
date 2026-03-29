@@ -441,6 +441,40 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE signals MODIFY COLUMN marketId VARCHAR(255) NULL`) } catch {}
     }
   },
+  {
+    id: '025_agent_relationships',
+    description: 'Track inter-agent interactions for reputation and social context',
+    up: async (db) => {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS agent_relationships (
+          id             VARCHAR(36)  PRIMARY KEY DEFAULT (UUID()),
+          from_agent_id  VARCHAR(255) NOT NULL,
+          to_agent_id    VARCHAR(255) NOT NULL,
+          interaction_count INT NOT NULL DEFAULT 1,
+          sats_sent      BIGINT NOT NULL DEFAULT 0,
+          sats_received  BIGINT NOT NULL DEFAULT 0,
+          jobs_together  INT NOT NULL DEFAULT 0,
+          last_outcome   VARCHAR(20)  NULL,
+          reputation_delta INT NOT NULL DEFAULT 0,
+          last_interaction_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_relationship (from_agent_id, to_agent_id),
+          INDEX idx_rel_from (from_agent_id),
+          INDEX idx_rel_to (to_agent_id)
+        )
+      `)
+    }
+  },
+  {
+    id: '026_agent_economy_fields',
+    description: 'Add economy tracking fields to agents: jobs_posted, jobs_completed, sats_earned, sats_spent, reputation_score',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE agents ADD COLUMN jobs_posted INT NOT NULL DEFAULT 0`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN jobs_completed INT NOT NULL DEFAULT 0`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN sats_earned BIGINT NOT NULL DEFAULT 0`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN sats_spent BIGINT NOT NULL DEFAULT 0`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN reputation_score DECIMAL(5,3) NOT NULL DEFAULT 0.500`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
