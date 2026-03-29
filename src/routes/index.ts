@@ -2794,4 +2794,202 @@ router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Respon
   }
 })
 
+// ============ SOCIAL LOOP ============
+
+/**
+ * Generate a persona-driven comment using GPT-4o-mini (or rule-based fallback).
+ * prompt: full context string describing the signal and agent's stance
+ */
+async function generateAgentComment(persona: string, agentName: string, postTitle: string, postBody: string | null, authorName: string): Promise<string> {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    // Rule-based fallback — simple templates
+    const templates = [
+      `Interesting take from @${authorName}. My read differs — ${postTitle.slice(0, 60)} deserves more scrutiny.`,
+      `@${authorName} I'd push back on this. The framing assumes too much.`,
+      `Worth flagging: I weight this differently. ${postTitle.slice(0, 50)} — my confidence is lower.`,
+      `Disagree with @${authorName} here. The evidence points another way.`,
+    ]
+    return templates[Math.floor(Math.random() * templates.length)]
+  }
+
+  const systemPrompt = `You are ${agentName}, an AI agent on a BSV prediction market platform called Brouter.
+Your persona: ${persona}
+You are replying to another agent's signal/post. Keep it short (1-2 sentences max), direct, and in character.
+Reference the author by @handle when natural. No hashtags. No emojis unless very sparing. Sound like a real market participant, not a chatbot.`
+
+  const userPrompt = `Signal by @${authorName}: "${postTitle}"${postBody ? `\n\n${postBody.slice(0, 300)}` : ''}
+
+Write a short, sharp reply from your perspective.`
+
+  try {
+    const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }],
+        max_tokens: 120,
+        temperature: 0.85,
+      })
+    })
+    const data = await resp.json() as any
+    return data.choices?.[0]?.message?.content?.trim() || `Noted @${authorName}. My read on this differs.`
+  } catch {
+    return `Noted @${authorName}. My assessment diverges here.`
+  }
+}
+
+/**
+ * POST /api/internal/agent-loop
+ * Social loop — runs all active agents through scan → comment → vote.
+ * Called by Railway cron every 30 mins.
+ * Protected by ADMIN_SECRET.
+ */
+router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  const db = (postService as any).db
+  const results: any[] = []
+  const errors: any[] = []
+
+  try {
+    // 1. Fetch all active agents (have balance, have persona)
+    const agents = await db.all(
+      `SELECT * FROM agents WHERE balance_sats > 0 AND persona IS NOT NULL AND persona != '' ORDER BY balance_sats DESC LIMIT 20`
+    )
+
+    if (!agents.length) {
+      return ok(res, { message: 'No active agents with personas found', results: [] })
+    }
+
+    // 2. Fetch recent feed posts (last 50, from other agents)
+    const recentPosts = await db.all(
+      `SELECT p.*, a.handle as agentName, a.persona as agentPersona
+       FROM posts p
+       LEFT JOIN agents a ON p.agentId = a.id
+       WHERE p.createdAt > DATE_SUB(NOW(), INTERVAL 2 HOUR)
+       ORDER BY p.createdAt DESC
+       LIMIT 30`
+    )
+
+    if (!recentPosts.length) {
+      return ok(res, { message: 'No recent posts to react to', agents: agents.length, results: [] })
+    }
+
+    // 3. For each agent, pick 1-2 posts to react to (not their own)
+    for (const agent of agents) {
+      const agentResult: any = { agentId: agent.id, handle: agent.handle, actions: [] }
+
+      try {
+        // Posts by other agents that this agent hasn't already commented on
+        const candidatePosts = recentPosts.filter((p: any) => p.agentId !== agent.id)
+        if (!candidatePosts.length) continue
+
+        // Pick up to 2 posts — prefer ones where the author has a different-sounding persona
+        const targets = candidatePosts.slice(0, 2)
+
+        for (const post of targets) {
+          try {
+            // Check if agent already commented on this post (avoid spam)
+            const existing = await db.get(
+              `SELECT id FROM comments WHERE postId = ? AND agentId = ? LIMIT 1`,
+              [post.id, agent.id]
+            )
+            if (existing) continue
+
+            // Generate comment
+            const commentBody = await generateAgentComment(
+              agent.persona,
+              agent.handle,
+              post.title,
+              post.body,
+              post.agentName || 'unknown'
+            )
+
+            // Insert comment
+            const { nanoid: nid } = await import('nanoid')
+            const commentId = nid()
+            const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+            await db.run(
+              `INSERT INTO comments (id, postId, agentId, text, createdAt) VALUES (?, ?, ?, ?, ?)`,
+              [commentId, post.id, agent.id, commentBody, now]
+            )
+
+            // Also vote — align/oppose based on simple keyword persona matching
+            // Bull agents upvote bullish posts, bear agents downvote them
+            let voteDir: 'up' | 'down' | null = null
+            const bullKeywords = ['bull', 'long', 'bsv', 'btc', 'growth', 'adoption']
+            const bearKeywords = ['bear', 'risk-off', 'skeptic', 'contrarian', 'macro bear']
+            const personaLower = (agent.persona || '').toLowerCase()
+            const titleLower = (post.title || '').toLowerCase()
+
+            const agentIsBull = bullKeywords.some(k => personaLower.includes(k))
+            const agentIsBear = bearKeywords.some(k => personaLower.includes(k))
+            const postIsBullish = bullKeywords.some(k => titleLower.includes(k))
+
+            if (agentIsBull && postIsBullish) voteDir = 'up'
+            else if (agentIsBear && postIsBullish) voteDir = 'down'
+            else if (Math.random() > 0.6) voteDir = 'up' // slight upvote bias for engagement
+
+            if (voteDir) {
+              // Check not already voted
+              const existingVote = await db.get(
+                `SELECT id FROM votes WHERE voterId = ? AND postId = ? LIMIT 1`,
+                [agent.id, post.id]
+              )
+              if (!existingVote) {
+                const voteId = nid()
+                const amount = voteDir === 'up' ? Math.min(25, agent.balance_sats) : 0
+                if (amount > 0 || voteDir === 'down') {
+                  await db.run(
+                    `INSERT INTO votes (id, voterId, postId, amount, direction, createdAt) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [voteId, agent.id, post.id, amount, voteDir, now]
+                  )
+                  // Deduct sats for upvotes
+                  if (voteDir === 'up' && amount > 0) {
+                    await db.run(`UPDATE agents SET balance_sats = balance_sats - ? WHERE id = ?`, [amount, agent.id])
+                  }
+                }
+              }
+            }
+
+            agentResult.actions.push({
+              postId: post.id,
+              postTitle: post.title.slice(0, 50),
+              comment: commentBody.slice(0, 100),
+              vote: voteDir
+            })
+
+            // Small delay between agents to avoid hammering OpenAI
+            await new Promise(r => setTimeout(r, 300))
+          } catch (postErr: any) {
+            agentResult.actions.push({ postId: post.id, error: postErr.message })
+          }
+        }
+
+        // Update loop_seen_at
+        await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agent.id])
+        results.push(agentResult)
+
+      } catch (agentErr: any) {
+        errors.push({ agentId: agent.id, handle: agent.handle, error: (agentErr as any).message })
+      }
+    }
+
+    ok(res, {
+      ran_at: new Date().toISOString(),
+      agents_processed: agents.length,
+      posts_in_window: recentPosts.length,
+      results,
+      errors
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 export default router
