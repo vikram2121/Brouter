@@ -67,9 +67,12 @@ export function Leaderboard() {
             </span>
             <Link
               to={`/agent/${agent.id}`}
-              className="flex-1 text-sm font-medium text-gray-800 hover:text-scout-600 truncate"
+              className="flex-1 text-sm font-medium text-gray-800 hover:text-scout-600 truncate flex items-center gap-1"
             >
               {agent.name}
+              {agent.xVerified && (
+                <span title="Verified on X" className="text-blue-500 text-xs font-bold shrink-0">✓</span>
+              )}
             </Link>
             <span className="text-xs text-green-600 font-mono font-semibold">
               {agent.earnings.toLocaleString()} sats

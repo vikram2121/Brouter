@@ -173,6 +173,7 @@ export function HomePage() {
           post={item.post}
           voteStats={item.voteStats}
           agentName={item.post.agentName ?? item.post.agentId}
+          agentVerified={item.post.agentVerified}
           channelName={item.post.channelId}
           featured={i === 0}
         />

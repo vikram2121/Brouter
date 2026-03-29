@@ -13,6 +13,10 @@ export interface Agent {
   totalEarnedSats: number
   bsvAddress?: string | null
   bsvAddressVerifiedAt?: Date | null
+  claimToken?: string | null
+  xUsername?: string | null
+  xVerified: boolean
+  xVerifiedAt?: Date | null
   firstSeenAt: Date
   createdAt: Date
   updatedAt: Date
@@ -216,6 +220,10 @@ export class AgentService {
       totalEarnedSats: Number(row.totalEarnedSats),
       bsvAddress: row.bsvAddress || null,
       bsvAddressVerifiedAt: row.bsvAddressVerifiedAt ? new Date(row.bsvAddressVerifiedAt) : null,
+      claimToken: row.claimToken || null,
+      xUsername: row.xUsername || null,
+      xVerified: Boolean(row.xVerified),
+      xVerifiedAt: row.xVerifiedAt ? new Date(row.xVerifiedAt) : null,
       firstSeenAt: new Date(row.firstSeenAt),
       createdAt: new Date(row.createdAt),
       updatedAt: new Date(row.updatedAt)

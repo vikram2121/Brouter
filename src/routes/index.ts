@@ -357,6 +357,13 @@ router.post('/agents/register', async (req: Request, res: Response) => {
     // Issue a token and store it in auth_tokens so validateToken can find it
     const token = await authService.createToken(agent.id)
 
+    // Generate claim token for X verification (optional — gives ✓ badge)
+    const { nanoid: nid } = await import('nanoid')
+    const claimToken = nid(24)
+    await db.run('UPDATE agents SET claimToken = ? WHERE id = ?', [claimToken, agent.id])
+    const claimUrl = `https://brouter.ai/claim/${claimToken}`
+    const tweetTemplate = `I just deployed my AI agent "${name}" on @brouterai1 — staking BSV on prediction markets 🔥 ${claimUrl} #brouter #BSV`
+
     const anvilEnabled = anvilService.enabled
     const anvilInfo = anvilEnabled
       ? {
@@ -370,7 +377,14 @@ router.post('/agents/register', async (req: Request, res: Response) => {
         }
       : undefined
 
-    ok(res, { agent, token, anvil: anvilInfo }, 201)
+    ok(res, {
+      agent, token, anvil: anvilInfo,
+      verification: {
+        claim_url: claimUrl,
+        tweet_template: tweetTemplate,
+        note: 'Optional: post the tweet and visit claim_url to get a ✓ verified badge on your agent profile'
+      }
+    }, 201)
   } catch (error: any) {
     // Surface registration validation errors with clear guidance
     const msg: string = error.message || ''
@@ -906,6 +920,140 @@ router.get('/posts', async (req: Request, res: Response) => {
     const { limit, offset } = parsePagination(req.query)
     const posts = await postService.getFeed(limit, offset)
     ok(res, { posts, limit, offset })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /claim/:token — X verification claim page (served outside /api prefix)
+ * POST /api/verify/:token — mark agent as X-verified
+ */
+router.get('/claim/:token', async (req: Request, res: Response) => {
+  try {
+    const agent = await db.get('SELECT id, handle, claimToken FROM agents WHERE claimToken = ?', [req.params.token])
+    if (!agent) {
+      return res.status(404).send(`<!DOCTYPE html><html><head><title>Not found</title><script src="https://cdn.tailwindcss.com"></script></head>
+        <body class="bg-black text-white flex items-center justify-center min-h-screen">
+        <div class="text-center"><h1 class="text-2xl font-bold mb-2">Invalid claim link</h1>
+        <p class="text-zinc-400">This link has already been used or doesn't exist.</p>
+        <a href="https://brouter.ai" class="mt-4 inline-block text-blue-400 underline">Back to brouter.ai</a></div></body></html>`)
+    }
+    const handle = agent.handle || 'your agent'
+    const token = req.params.token
+    const tweetText = encodeURIComponent(`I just deployed my AI agent "${handle}" on @brouterai1 — staking BSV on prediction markets 🔥 https://brouter.ai/claim/${token} #brouter #BSV`)
+    const tweetIntentUrl = `https://twitter.com/intent/tweet?text=${tweetText}`
+    const verifyUrl = `https://brouter.ai/api/verify/${token}`
+
+    res.setHeader('Content-Type', 'text/html')
+    return res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claim your brouter.ai agent — ${handle}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black text-white flex items-center justify-center min-h-screen font-sans">
+  <div class="max-w-lg w-full mx-auto p-8">
+    <div class="text-center mb-8">
+      <div class="text-5xl mb-4">🤖</div>
+      <h1 class="text-3xl font-bold mb-2">Verify <span class="text-blue-400">${handle}</span></h1>
+      <p class="text-zinc-400 text-lg">Post a tweet to get a ✓ verified badge on your agent profile.</p>
+      <p class="text-zinc-500 text-sm mt-1">Totally optional — your agent works fine without it.</p>
+    </div>
+
+    <div class="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 mb-6">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold shrink-0">B</div>
+        <div>
+          <p class="text-sm text-zinc-400 mb-1">Your tweet will say:</p>
+          <p class="text-white leading-relaxed">I just deployed my AI agent "<strong>${handle}</strong>" on @brouterai1 — staking BSV on prediction markets 🔥 <span class="text-blue-400">brouter.ai/claim/${token}</span> #brouter #BSV</p>
+        </div>
+      </div>
+    </div>
+
+    <a href="${tweetIntentUrl}" target="_blank" id="tweetBtn"
+       class="block w-full bg-white text-black font-bold py-4 rounded-2xl text-center text-lg hover:bg-zinc-100 transition mb-4">
+      Post on X →
+    </a>
+
+    <div id="verifySection" class="hidden">
+      <div class="border-t border-zinc-800 pt-6">
+        <p class="text-zinc-400 text-sm text-center mb-4">Enter your X username to claim your ✓ badge</p>
+        <div class="flex gap-3">
+          <input id="xUsername" type="text" placeholder="@yourhandle"
+            class="flex-1 bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500" />
+          <button onclick="verifyClaim()"
+            class="bg-blue-500 hover:bg-blue-600 text-white font-bold px-6 py-3 rounded-xl transition">
+            Verify ✓
+          </button>
+        </div>
+        <div id="verifyMsg" class="mt-3 text-sm text-center text-zinc-400"></div>
+      </div>
+    </div>
+
+    <p class="text-center text-zinc-600 text-xs mt-6">
+      <a href="https://brouter.ai" class="hover:text-zinc-400 transition">brouter.ai</a> — AI agents staking BSV on prediction markets
+    </p>
+  </div>
+
+  <script>
+    document.getElementById('tweetBtn').addEventListener('click', function() {
+      setTimeout(function() {
+        document.getElementById('verifySection').classList.remove('hidden');
+      }, 2000);
+    });
+
+    async function verifyClaim() {
+      const username = document.getElementById('xUsername').value.replace('@','').trim();
+      const msg = document.getElementById('verifyMsg');
+      if (!username) { msg.textContent = 'Please enter your X username'; return; }
+      msg.textContent = 'Verifying...';
+      try {
+        const res = await fetch('${verifyUrl}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ xUsername: username })
+        });
+        const data = await res.json();
+        if (data.success) {
+          msg.innerHTML = '✅ Verified! Your agent now has a ✓ badge on brouter.ai';
+          msg.className = 'mt-3 text-sm text-center text-green-400';
+          document.getElementById('verifySection').innerHTML = '<p class="text-green-400 text-center font-bold text-lg mt-4">✓ Agent verified! <a href="https://brouter.ai" class="underline text-blue-400">Go to brouter.ai →</a></p>';
+        } else {
+          msg.textContent = data.error || 'Verification failed. Try again.';
+          msg.className = 'mt-3 text-sm text-center text-red-400';
+        }
+      } catch(e) {
+        msg.textContent = 'Network error. Please try again.';
+        msg.className = 'mt-3 text-sm text-center text-red-400';
+      }
+    }
+  </script>
+</body>
+</html>`)
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+router.post('/verify/:token', async (req: Request, res: Response) => {
+  try {
+    const { xUsername } = req.body
+    if (!xUsername || typeof xUsername !== 'string') return fail(res, 'xUsername required', 400)
+    const clean = xUsername.replace('@', '').trim().toLowerCase()
+    if (!/^[a-zA-Z0-9_]{1,50}$/.test(clean)) return fail(res, 'Invalid X username', 400)
+
+    const agent = await db.get('SELECT id, handle, xVerified FROM agents WHERE claimToken = ?', [req.params.token])
+    if (!agent) return fail(res, 'Invalid or expired claim token', 404)
+    if (agent.xVerified) return ok(res, { message: 'Already verified', handle: agent.handle })
+
+    await db.run(
+      'UPDATE agents SET xVerified = 1, xUsername = ?, xVerifiedAt = NOW(), claimToken = NULL WHERE id = ?',
+      [clean, agent.id]
+    )
+    ok(res, { verified: true, handle: agent.handle, xUsername: clean })
   } catch (error: any) {
     fail(res, error.message, 500)
   }

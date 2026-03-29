@@ -98,6 +98,9 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 app.use('/api/admin', adminDashboard)
 app.use('/api', routes)
 
+// Claim + verify pages at clean root URLs (no /api prefix)
+app.use('/', routes)
+
 // Serve /.well-known/agent.md for A2A agent discovery (before SPA catch-all)
 app.get('/.well-known/agent.md', async (_req, res) => {
   try {

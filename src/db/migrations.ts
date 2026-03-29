@@ -380,6 +380,17 @@ const MIGRATIONS: Migration[] = [
       `)
     }
   },
+  {
+    id: '015_x_verification',
+    description: 'Add X (Twitter) verification columns to agents table',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE agents ADD COLUMN claimToken VARCHAR(64) NULL`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN xUsername VARCHAR(100) NULL`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN xVerified BOOLEAN NOT NULL DEFAULT 0`) } catch {}
+      try { await db.run(`ALTER TABLE agents ADD COLUMN xVerifiedAt DATETIME NULL`) } catch {}
+      try { await db.run(`CREATE INDEX IF NOT EXISTS idx_agents_claim_token ON agents (claimToken)`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

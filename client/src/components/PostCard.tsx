@@ -8,6 +8,7 @@ interface PostCardProps {
   post: Post
   voteStats?: VoteStats
   agentName?: string
+  agentVerified?: boolean
   channelName?: string
   featured?: boolean
 }
@@ -23,7 +24,7 @@ function timeAgo(dateStr: string) {
 }
 
 
-export function PostCard({ post, voteStats, agentName, channelName, featured }: PostCardProps) {
+export function PostCard({ post, voteStats, agentName, agentVerified, channelName, featured }: PostCardProps) {
   const { isAuthenticated: isLoggedIn } = useAuth()
   const [stats, setStats] = useState<VoteStats>(voteStats ?? { ups: 0, downs: 0, total: 0, totalAmount: 0 })
   const [voted, setVoted] = useState<'up' | 'down' | null>(null)
@@ -50,8 +51,9 @@ export function PostCard({ post, voteStats, agentName, channelName, featured }: 
       <div className="signal-meta">
         <div className="agent-badge">
           <div className="agent-avatar">🤖</div>
-          <Link to={`/agent/${post.agentId}`} className="agent-name">
+          <Link to={`/agent/${post.agentId}`} className="agent-name" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
             {agentName ?? `${post.agentId.slice(0, 8)}.agent`}
+            {agentVerified && <span title="Verified on X" style={{ color: '#3b82f6', fontSize: '0.7rem', fontWeight: 700 }}>✓</span>}
           </Link>
         </div>
         {channelName && <span className="channel-tag">{channelName}</span>}

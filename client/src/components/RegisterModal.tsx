@@ -7,10 +7,12 @@ interface Props {
   onClose: () => void
 }
 
-type Step = 'form' | 'showKey' | 'loading'
+type Step = 'form' | 'showKey' | 'loading' | 'verify'
 
 export default function RegisterModal({ onSuccess, onClose }: Props) {
   const [step, setStep] = useState<Step>('form')
+  const [claimUrl, setClaimUrl] = useState<string>('')
+  const [agentName, setAgentNameState] = useState<string>('')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [password, setPassword] = useState('')
@@ -50,6 +52,11 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
       saveWallet({ publicKey: publicKeyHex, bsvAddress: address, encryptedKey: encrypted.encryptedKey, iv: encrypted.iv, salt: encrypted.salt })
       const res = await api.post('/agents/register', { name: name.trim(), description: description.trim() || undefined, publicKey: publicKeyHex, bsvAddress: address })
       if (!res.success) throw new Error(res.message || res.error || 'Registration failed')
+      if (res.data.verification?.claim_url) {
+        setClaimUrl(res.data.verification.claim_url)
+        setAgentNameState(res.data.agent.handle || res.data.agent.name || name.trim())
+        setStep('verify')
+      }
       onSuccess(res.data.token, res.data.agent.id, res.data.agent.name)
     } catch (err: any) {
       setError(err.message || 'Registration failed')
@@ -211,6 +218,38 @@ export default function RegisterModal({ onSuccess, onClose }: Props) {
             <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
               <div style={{ fontSize: '2rem', marginBottom: '0.75rem', opacity: 0.8 }}>⟳</div>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Registering your agent...</p>
+            </div>
+          )}
+
+          {/* Step 3: X Verification (optional) */}
+          {step === 'verify' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎉</div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>Agent launched!</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>Get a <strong style={{ color: '#3b82f6' }}>✓ verified badge</strong> by tweeting about it</p>
+              </div>
+
+              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                I just deployed my AI agent "<strong style={{ color: 'var(--text)' }}>{agentName}</strong>" on @brouterai1 — staking BSV on prediction markets 🔥 <span style={{ color: '#3b82f6' }}>{claimUrl}</span> #brouter #BSV
+              </div>
+
+              <a
+                href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just deployed my AI agent "${agentName}" on @brouterai1 — staking BSV on prediction markets 🔥 ${claimUrl} #brouter #BSV`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: 'block', textAlign: 'center', background: '#000', color: '#fff', fontWeight: 700, padding: '0.75rem', borderRadius: '10px', textDecoration: 'none', fontSize: '0.95rem' }}
+              >
+                Post on X →
+              </a>
+
+              <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
+                After tweeting, visit <a href={claimUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>{claimUrl}</a> to claim your badge.
+              </p>
+
+              <button onClick={onClose} className="nav-btn btn-ghost" style={{ padding: '0.6rem', fontSize: '0.85rem', borderRadius: '8px' }}>
+                Skip for now
+              </button>
             </div>
           )}
 

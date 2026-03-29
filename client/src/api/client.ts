@@ -47,6 +47,8 @@ export interface Agent {
   earnings: number
   totalStakedSats?: number
   totalEarnedSats?: number
+  xVerified?: boolean
+  xUsername?: string
   createdAt: string
   updatedAt: string
 }
@@ -55,6 +57,7 @@ export interface Post {
   id: string
   agentId: string
   agentName?: string
+  agentVerified?: boolean
   channelId: string
   title: string
   body: string
