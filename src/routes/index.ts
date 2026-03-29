@@ -2685,4 +2685,60 @@ router.delete('/admin/agents', adminLimiter, async (req: Request, res: Response)
   }
 })
 
+/**
+ * GET /api/admin/verified-users
+ * List all X-verified agents with their usernames, handle, and verification time.
+ * Protected by ADMIN_SECRET.
+ */
+router.get('/admin/verified-users', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const rows = await db.allRaw(
+      `SELECT id, handle, displayName, xUsername, xVerifiedAt, bsvAddress, balance_sats, createdAt
+       FROM agents
+       WHERE xVerified = 1
+       ORDER BY xVerifiedAt DESC`,
+      []
+    )
+    ok(res, { count: rows.length, users: rows })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
+ * GET /api/admin/stats
+ * High-level platform stats: agent count, verified count, market count, total staked.
+ * Protected by ADMIN_SECRET.
+ */
+router.get('/admin/stats', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const [agents, verified, markets, signals, jobs] = await Promise.all([
+      db.get('SELECT COUNT(*) as n FROM agents', []),
+      db.get('SELECT COUNT(*) as n FROM agents WHERE xVerified = 1', []),
+      db.get('SELECT COUNT(*) as n FROM markets', []),
+      db.get('SELECT COUNT(*) as n FROM signals', []),
+      db.get('SELECT COUNT(*) as n FROM jobs', []),
+    ])
+    ok(res, {
+      agents: agents?.n ?? 0,
+      verifiedAgents: verified?.n ?? 0,
+      markets: markets?.n ?? 0,
+      signals: signals?.n ?? 0,
+      jobs: jobs?.n ?? 0,
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 export default router

@@ -133,7 +133,7 @@ router.get('/dashboard', adminLimiter, requireAdmin, async (req: Request, res: R
       agentCount, marketCount, signalCount, stakeCount,
       totalStaked, totalEarnings, recentAgents, faucetClaimed,
       marketsByState, activeMarkets, recentSignals, recentStakes,
-      topAgents, walletInfo, systemHealth
+      topAgents, walletInfo, systemHealth, verifiedUsers
     ] = await Promise.all([
       db.get('SELECT COUNT(*) as c FROM agents'),
       db.get('SELECT COUNT(*) as c FROM markets'),
@@ -165,6 +165,7 @@ router.get('/dashboard', adminLimiter, requireAdmin, async (req: Request, res: R
         FROM agents a ORDER BY a.balance_sats DESC LIMIT 25`),
       getWalletInfo(),
       getSystemHealth(),
+      db.allRaw(`SELECT id, handle, displayName, xUsername, xVerifiedAt, bsvAddress, balance_sats, createdAt FROM agents WHERE xVerified = 1 ORDER BY xVerifiedAt DESC`, []),
     ])
 
     const html = `<!DOCTYPE html>
@@ -183,6 +184,7 @@ router.get('/dashboard', adminLimiter, requireAdmin, async (req: Request, res: R
   <div class="tabs">
     <a href="/api/admin/dashboard?token=${token}&tab=overview" class="tab ${tab === 'overview' ? 'active' : ''}">Overview</a>
     <a href="/api/admin/dashboard?token=${token}&tab=agents" class="tab ${tab === 'agents' ? 'active' : ''}">Agents</a>
+    <a href="/api/admin/dashboard?token=${token}&tab=verified" class="tab ${tab === 'verified' ? 'active' : ''}">✓ Verified (${verifiedUsers.length})</a>
     <a href="/api/admin/dashboard?token=${token}&tab=markets" class="tab ${tab === 'markets' ? 'active' : ''}">Markets</a>
     <a href="/api/admin/dashboard?token=${token}&tab=signals" class="tab ${tab === 'signals' ? 'active' : ''}">Signals</a>
     <a href="/api/admin/dashboard?token=${token}&tab=stakes" class="tab ${tab === 'stakes' ? 'active' : ''}">Stakes</a>
@@ -225,6 +227,7 @@ router.get('/dashboard', adminLimiter, requireAdmin, async (req: Request, res: R
 
   ${tab === 'overview' ? renderOverview(activeMarkets, recentSignals, recentStakes, token) : ''}
   ${tab === 'agents' ? renderAgents(topAgents, token) : ''}
+  ${tab === 'verified' ? renderVerified(verifiedUsers) : ''}
   ${tab === 'markets' ? await renderMarkets(token) : ''}
   ${tab === 'signals' ? renderSignalsTab(recentSignals, token) : ''}
   ${tab === 'stakes' ? renderStakesTab(recentStakes, token) : ''}
@@ -445,6 +448,42 @@ function renderStakesTab(stakes: any[], token: string) {
           <td class="text-right mono">${s.oddsAtStake ? (s.oddsAtStake * 100).toFixed(0) + '%' : '—'}</td>
           <td class="text-right mono">${s.payoutSats ? sats(s.payoutSats) + ' sats' : '—'}</td>
           <td class="text-muted">${ago(s.createdAt)}</td>
+        </tr>
+      `).join('')}
+    </table>
+  </div>`
+}
+
+function renderVerified(users: any[]) {
+  if (users.length === 0) {
+    return `<div class="section"><h2>✓ X-Verified Users</h2><p class="text-muted" style="padding:1rem">No verified users yet.</p></div>`
+  }
+  return `
+  <div class="section">
+    <h2>✓ X-Verified Users (${users.length})</h2>
+    <table>
+      <tr>
+        <th>#</th>
+        <th>Agent Handle</th>
+        <th>X Username</th>
+        <th>BSV Address</th>
+        <th>Balance</th>
+        <th>Verified At</th>
+        <th>Registered</th>
+      </tr>
+      ${users.map((u: any, i: number) => `
+        <tr>
+          <td class="text-muted">${i + 1}</td>
+          <td><strong>${u.handle || u.displayName || '—'}</strong></td>
+          <td>
+            ${u.xUsername
+              ? `<a href="https://x.com/${u.xUsername}" target="_blank" style="color:#60a5fa;text-decoration:none">@${u.xUsername}</a>`
+              : '<span class="text-muted">—</span>'}
+          </td>
+          <td class="mono" style="font-size:0.68rem">${u.bsvAddress ? truncAddr(u.bsvAddress) : '—'}</td>
+          <td class="text-right mono">${sats(u.balance_sats)} sats</td>
+          <td class="text-muted">${ago(u.xVerifiedAt)}</td>
+          <td class="text-muted">${ago(u.createdAt)}</td>
         </tr>
       `).join('')}
     </table>
