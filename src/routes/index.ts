@@ -2758,4 +2758,40 @@ router.get('/admin/stats', adminLimiter, async (req: Request, res: Response) => 
   }
 })
 
+/**
+ * POST /api/admin/issue-token
+ * Issue a fresh 90-day JWT for any agent by handle or id.
+ * Protected by ADMIN_SECRET.
+ *
+ * curl -X POST https://brouter.ai/api/admin/issue-token \
+ *   -H "Authorization: Bearer <ADMIN_SECRET>" \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"handle": "vikram"}'
+ */
+router.post('/admin/issue-token', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const { handle, id } = req.body
+    if (!handle && !id) return fail(res, 'Provide handle or id', 400)
+
+    const db = (agentService as any).db
+    let agent: any
+    if (id) {
+      agent = await db.get(`SELECT * FROM agents WHERE id = ?`, [id])
+    } else {
+      agent = await db.get(`SELECT * FROM agents WHERE handle = ?`, [handle])
+    }
+    if (!agent) return fail(res, 'Agent not found', 404)
+
+    const token = await authService.createToken(agent.id)
+    ok(res, { agentId: agent.id, handle: agent.handle, token })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 export default router
