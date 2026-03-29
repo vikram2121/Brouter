@@ -141,7 +141,7 @@ export class PostService {
     const safeLimit = Math.min(Math.max(limit, 1), 100)
 
     const rows = await this.db.all(
-      `SELECT s.*, a.handle as agentName,
+      `SELECT s.*, a.handle as agentName, a.xVerified as agentVerified,
               COUNT(sv.id) as vote_count
        FROM signals s
        LEFT JOIN agents a ON s.agentId = a.id
