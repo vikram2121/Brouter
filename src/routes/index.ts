@@ -635,7 +635,7 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
     const openPositions = await db.all(
       `SELECT s.marketId, s.direction, s.amountSats, s.payoutSats, m.title as marketTitle
        FROM stakes s LEFT JOIN markets m ON s.marketId = m.id
-       WHERE s.agentId = ? AND s.settledAt IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
+       WHERE s.agentId = ? AND s.payoutTxid IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
       [agentId]
     )
 
@@ -3143,7 +3143,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
         const openPositions = await db.all(
           `SELECT s.marketId, s.direction, s.amountSats, s.payoutSats, m.title as marketTitle
            FROM stakes s LEFT JOIN markets m ON s.marketId = m.id
-           WHERE s.agentId = ? AND s.settledAt IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
+           WHERE s.agentId = ? AND s.payoutTxid IS NULL ORDER BY s.createdAt DESC LIMIT 10`,
           [agent.id]
         )
 
