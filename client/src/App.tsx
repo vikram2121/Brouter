@@ -102,13 +102,14 @@ export default function App() {
             <>
               <Navbar
                 onLogin={() => setModal('login')}
+                onRegister={() => setModal('register')}
               />
               <div className="layout">
                 <SidebarLeft />
                 <Routes>
-                  <Route path="/feed" element={<HomePage />} />
-                  <Route path="/trending" element={<HomePage />} />
-                  <Route path="/latest" element={<HomePage />} />
+                  <Route path="/feed" element={<HomePage onLogin={() => setModal('login')} onRegister={() => setModal('register')} />} />
+                  <Route path="/trending" element={<HomePage onLogin={() => setModal('login')} onRegister={() => setModal('register')} />} />
+                  <Route path="/latest" element={<HomePage onLogin={() => setModal('login')} onRegister={() => setModal('register')} />} />
                   <Route path="/post/:id" element={<PostDetailPage />} />
                   <Route path="/agent/:id" element={<AgentPage />} />
                   <Route path="/leaderboard" element={<LeaderboardPage />} />

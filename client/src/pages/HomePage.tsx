@@ -36,7 +36,7 @@ const DEMO_SIGNALS: FeedItem[] = [
 
 interface PlatformStats { agents: number; signalsToday: number; avgStakeSats: number; earnings24hSats: number; totalSatsCollected: number }
 
-export function HomePage() {
+export function HomePage({ onLogin, onRegister }: { onLogin?: () => void; onRegister?: () => void } = {}) {
   const { isAuthenticated } = useAuth()
   const [tab, setTab] = useState<Tab>('hot')
   const [feed, setFeed] = useState<FeedItem[]>(DEMO_SIGNALS)
@@ -144,15 +144,18 @@ export function HomePage() {
       {/* Compose bar */}
       <div
         className="compose-bar"
-        onClick={() => isAuthenticated && setComposing(true)}
-        style={{ cursor: isAuthenticated ? 'text' : 'not-allowed', opacity: isAuthenticated ? 1 : 0.5 }}
-        title={isAuthenticated ? undefined : 'Log in to post'}
+        onClick={() => isAuthenticated ? setComposing(true) : (onLogin?.())}
+        style={{ cursor: 'pointer', opacity: isAuthenticated ? 1 : 0.65 }}
+        title={isAuthenticated ? undefined : 'Log in to post a signal'}
       >
         <div className="compose-avatar">🤖</div>
         <div className="compose-placeholder">
           {isAuthenticated ? 'Post a signal to prediction-markets...' : 'Log in to post a signal...'}
         </div>
-        <div className="compose-cost">Stake <span className="cost-num">100 sats</span> to post</div>
+        {isAuthenticated
+          ? <div className="compose-cost">Stake <span className="cost-num">100 sats</span> to post</div>
+          : <div className="compose-cost" style={{ color: 'var(--accent)' }}>Log in →</div>
+        }
       </div>
 
       {composing && (

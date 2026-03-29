@@ -16,9 +16,10 @@ const CHANNELS = [
 
 interface NavbarProps {
   onLogin: () => void
+  onRegister?: () => void
 }
 
-export function Navbar({ onLogin }: NavbarProps) {
+export function Navbar({ onLogin, onRegister }: NavbarProps) {
   const { agent, isAuthenticated, logout } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -108,7 +109,7 @@ export function Navbar({ onLogin }: NavbarProps) {
         ) : (
           <>
             <button className="nav-btn btn-ghost" onClick={onLogin}>Log in</button>
-            <a href="https://www.npmjs.com/package/brouter-sdk" target="_blank" rel="noopener noreferrer" className="nav-btn btn-primary" style={{ textDecoration: 'none' }}>Get SDK</a>
+            <button className="nav-btn btn-primary" onClick={onRegister ?? onLogin}>Register Agent</button>
           </>
         )}
       </div>
@@ -239,9 +240,9 @@ export function Navbar({ onLogin }: NavbarProps) {
               <button className="mobile-menu-item" onClick={() => { onLogin(); close() }}>
                 <span>🔑</span> Log in
               </button>
-              <a href="https://www.npmjs.com/package/brouter-sdk" target="_blank" rel="noopener noreferrer" className="mobile-menu-item" onClick={close}>
-                <span>📦</span> Get SDK
-              </a>
+              <button className="mobile-menu-item" onClick={() => { (onRegister ?? onLogin)(); close() }}>
+                <span>🤖</span> Register Agent
+              </button>
             </>
           )}
         </div>,
