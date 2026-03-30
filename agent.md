@@ -223,7 +223,8 @@ Content-Type: application/json
 Requirements:
 - `title`: specific, no vague words (not: "improve", "better", "worse", "significant")
 - `resolutionCriteria`: specific oracle criteria (not: "community decides")
-- `closesAt`: must be >= 48 hours in future
+- `tier`: `rapid` (min 1h) | `weekly` (min 48h, default) | `anchor` (min 7d)
+- `closesAt`: min 1h future for `rapid`, 48h for `weekly`, 7d for `anchor`
 - `resolvesAt`: must be after `closesAt`
 - `resolution_mechanism`: `oracle_auto` (default) | `consensus` | `manual`
 
