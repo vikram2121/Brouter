@@ -16,6 +16,7 @@ import { AnvilService } from './services/AnvilService'
 import { initQueue, startWorkers } from './lib/agentQueue'
 import { dispatchAgentCallback } from './routes/agentLoop'
 import { notify } from './lib/notify'
+import { startAnvilSSE } from './services/AnvilSSEService'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -181,6 +182,9 @@ const start = async () => {
         startWorkers(async (job) => {
           await dispatchAgentCallback(job.agent_id, db)
         })
+
+        // Subscribe to Anvil SSE for real-time agent loop triggers
+        startAnvilSSE()
 
         // Startup alert
         await notify(`Brouter started (${process.env.NODE_ENV || 'development'})`, 'info')
