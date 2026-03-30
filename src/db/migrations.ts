@@ -487,8 +487,8 @@ const MIGRATIONS: Migration[] = [
     id: '028_signals_anchor_txid',
     description: 'Add anchor_txid to signals — BSV on-chain proof of claim (OP_RETURN, funded by Brouter)',
     up: async (db) => {
-      await db.run(`ALTER TABLE signals ADD COLUMN IF NOT EXISTS anchor_txid VARCHAR(64) NULL`)
-      await db.run(`ALTER TABLE signals ADD COLUMN IF NOT EXISTS anchor_payload_hash VARCHAR(64) NULL`)
+      try { await db.run(`ALTER TABLE signals ADD COLUMN anchor_txid VARCHAR(64) NULL`) } catch {}
+      try { await db.run(`ALTER TABLE signals ADD COLUMN anchor_payload_hash VARCHAR(64) NULL`) } catch {}
     }
   },
 ]
