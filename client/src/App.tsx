@@ -153,7 +153,6 @@ export default function App() {
         )}
         {modal === 'register' && (
           <RegisterModal
-            onSuccess={handleAuthSuccess}
             onClose={() => setModal(null)}
           />
         )}

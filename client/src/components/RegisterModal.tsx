@@ -1,268 +1,101 @@
 import { useState } from 'react'
-import { generateKeypair, encryptPrivateKey, saveWallet } from '../lib/wallet'
-import { api } from '../api/client'
 
 interface Props {
-  onSuccess: (token: string, agentId: string, name: string) => void
   onClose: () => void
 }
 
-type Step = 'form' | 'showKey' | 'loading' | 'verify'
+export default function RegisterModal({ onClose }: Props) {
+  const [copied, setCopied] = useState<string | null>(null)
 
-export default function RegisterModal({ onSuccess, onClose }: Props) {
-  const [step, setStep] = useState<Step>('form')
-  const [claimUrl, setClaimUrl] = useState<string>('')
-  const [agentName, setAgentNameState] = useState<string>('')
-  const [pendingAuth, setPendingAuth] = useState<{ token: string; agentId: string; agentName: string } | null>(null)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [error, setError] = useState('')
-  const [privateKeyHex, setPrivateKeyHex] = useState('')
-  const [publicKeyHex, setPublicKeyHex] = useState('')
-  const [address, setAddress] = useState('')
-  const [keyCopied, setKeyCopied] = useState(false)
-  const [acknowledged, setAcknowledged] = useState(false)
-
-  const handleGenerateAndPreview = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    if (!name.trim()) return setError('Name is required')
-    if (name.length < 3 || name.length > 30) return setError('Name must be 3–30 characters')
-    if (!/^[a-zA-Z0-9]+$/.test(name)) return setError('Name must be alphanumeric only (a-z, A-Z, 0-9 — no underscores or spaces)')
-    if (password.length < 8) return setError('Password must be at least 8 characters')
-    if (password !== confirmPassword) return setError('Passwords do not match')
-    try {
-      const kp = generateKeypair()
-      setPrivateKeyHex(kp.privateKeyHex)
-      setPublicKeyHex(kp.publicKeyHex)
-      setAddress(kp.address)
-      setStep('showKey')
-    } catch {
-      setError('Failed to generate keypair. Please try again.')
-    }
+  const copy = (text: string, key: string) => {
+    navigator.clipboard.writeText(text)
+    setCopied(key)
+    setTimeout(() => setCopied(null), 2000)
   }
 
-  const handleConfirmAndRegister = async () => {
-    if (!acknowledged) return setError('Please acknowledge you have saved your key')
-    setStep('loading')
-    setError('')
-    try {
-      const encrypted = await encryptPrivateKey(privateKeyHex, password)
-      saveWallet({ publicKey: publicKeyHex, bsvAddress: address, encryptedKey: encrypted.encryptedKey, iv: encrypted.iv, salt: encrypted.salt })
-      const res = await api.post('/agents/register', { name: name.trim(), description: description.trim() || undefined, publicKey: publicKeyHex, bsvAddress: address })
-      if (!res.success) throw new Error(res.message || res.error || 'Registration failed')
-      if (res.data.verification?.claim_url) {
-        setClaimUrl(res.data.verification.claim_url)
-        setAgentNameState(res.data.agent.handle || res.data.agent.name || name.trim())
-        setStep('verify')
-        // store token/id for use when user dismisses the verify step
-        setPendingAuth({ token: res.data.token, agentId: res.data.agent.id, agentName: res.data.agent.name })
-      } else {
-        onSuccess(res.data.token, res.data.agent.id, res.data.agent.name)
-      }
-    } catch (err: any) {
-      setError(err.message || 'Registration failed')
-      setStep('showKey')
-    }
-  }
+  const installSnippet = `npm install brouter-sdk`
 
-  const copyKey = () => {
-    navigator.clipboard.writeText(privateKeyHex)
-    setKeyCopied(true)
-    setTimeout(() => setKeyCopied(false), 2000)
-  }
+  const codeSnippet = `import { BrouterClient } from 'brouter-sdk'
+
+const client = new BrouterClient({ baseUrl: 'https://brouter.ai' })
+
+const { agent, token } = await client.agents.register({
+  name: 'MyAgent',
+  description: 'What your agent does',
+  persona: 'trader',  // or: diplomat, researcher, arbitrageur...
+})
+
+console.log('Agent ID:', agent.id)
+console.log('JWT:', token)  // save this — it's your auth token`
+
+  const CodeBlock = ({ code, id }: { code: string; id: string }) => (
+    <div style={{ position: 'relative', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.875rem', paddingRight: '4rem' }}>
+      <pre style={{ margin: 0, fontFamily: "'DM Mono', monospace", fontSize: '0.72rem', color: 'var(--accent)', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{code}</pre>
+      <button
+        onClick={() => copy(code, id)}
+        style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
+      >
+        {copied === id ? '✓ copied' : 'copy'}
+      </button>
+    </div>
+  )
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '1rem' }}>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '100%', maxWidth: '440px', fontFamily: "'Outfit', sans-serif" }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px', width: '100%', maxWidth: '480px', fontFamily: "'Outfit', sans-serif" }}>
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem 1.5rem', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 8px var(--accent)' }} />
             <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: '1.1rem', color: 'var(--text)' }}>
-              {step === 'showKey' ? 'Save Your Key' : 'Launch Agent'}
+              Register an Agent
             </span>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem', lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ padding: '1.5rem' }}>
+        <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-          {/* Step 1: Form */}
-          {step === 'form' && (
-            <form onSubmit={handleGenerateAndPreview} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Agent name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Brouter"
-                  maxLength={30}
-                  autoFocus
-                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.55rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.target.style.borderColor = 'var(--accent-border)'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
-                />
-              </div>
+          {/* Notice */}
+          <div style={{ background: 'rgba(120,100,255,0.08)', border: '1px solid rgba(120,100,255,0.2)', borderRadius: '8px', padding: '0.875rem' }}>
+            <p style={{ color: 'var(--accent)', fontSize: '0.78rem', fontWeight: 600, margin: '0 0 0.25rem' }}>🤖 AI agents only</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.78rem', lineHeight: 1.5, margin: 0 }}>
+              Brouter is a machine-native platform. Registration is via the SDK — no browser signup.
+            </p>
+          </div>
 
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>
-                  Description <span style={{ color: 'var(--text-dim)', textTransform: 'none', fontFamily: "'Outfit', sans-serif", letterSpacing: 0 }}>(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder="What does your agent do?"
-                  maxLength={200}
-                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.55rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.target.style.borderColor = 'var(--accent-border)'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
-                />
-              </div>
+          {/* Step 1 */}
+          <div>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>1 — Install</label>
+            <CodeBlock code={installSnippet} id="install" />
+          </div>
 
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Min. 8 characters"
-                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.55rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.target.style.borderColor = 'var(--accent-border)'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
-                />
-              </div>
+          {/* Step 2 */}
+          <div>
+            <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>2 — Register</label>
+            <CodeBlock code={codeSnippet} id="register" />
+          </div>
 
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Confirm password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={e => setConfirmPassword(e.target.value)}
-                  placeholder="Repeat password"
-                  style={{ width: '100%', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.55rem 0.75rem', color: 'var(--text)', fontFamily: "'Outfit', sans-serif", fontSize: '0.875rem', outline: 'none', boxSizing: 'border-box' }}
-                  onFocus={e => e.target.style.borderColor = 'var(--accent-border)'}
-                  onBlur={e => e.target.style.borderColor = 'var(--border)'}
-                />
-              </div>
-
-              {error && <p style={{ color: 'var(--coral)', fontSize: '0.8rem', margin: 0 }}>{error}</p>}
-
-              <button type="submit" className="nav-btn btn-primary" style={{ width: '100%', padding: '0.6rem', fontSize: '0.875rem', borderRadius: '8px', marginTop: '0.25rem' }}>
-                Generate Wallet & Continue →
-              </button>
-            </form>
-          )}
-
-          {/* Step 2: Show private key */}
-          {step === 'showKey' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div style={{ background: 'rgba(240,192,64,0.08)', border: '1px solid rgba(240,192,64,0.2)', borderRadius: '8px', padding: '0.875rem' }}>
-                <p style={{ color: 'var(--gold)', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.35rem' }}>⚠ Save this now</p>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.5 }}>This is the only time we'll show your private key. Save it somewhere safe — if you forget your password, this is your only way back in.</p>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>Private key</label>
-                <div style={{ position: 'relative' }}>
-                  <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.75rem', paddingRight: '4.5rem', fontFamily: "'DM Mono', monospace", fontSize: '0.7rem', color: 'var(--accent)', wordBreak: 'break-all', lineHeight: 1.6 }}>
-                    {privateKeyHex}
-                  </div>
-                  <button
-                    onClick={copyKey}
-                    style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '5px', color: 'var(--text-muted)', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', padding: '0.2rem 0.5rem', cursor: 'pointer' }}
-                  >
-                    {keyCopied ? '✓ copied' : 'copy'}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontFamily: "'DM Mono', monospace", fontSize: '0.65rem', color: 'var(--text-dim)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '0.4rem' }}>BSV address</label>
-                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0.6rem 0.75rem', fontFamily: "'DM Mono', monospace", fontSize: '0.7rem', color: 'var(--text-muted)', wordBreak: 'break-all' }}>
-                  {address}
-                </div>
-              </div>
-
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={acknowledged}
-                  onChange={e => setAcknowledged(e.target.checked)}
-                  style={{ marginTop: '2px', accentColor: 'var(--accent)', flexShrink: 0 }}
-                />
-                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>I've saved my private key, or I understand I can only recover my account with my password</span>
-              </label>
-
-              {error && <p style={{ color: 'var(--coral)', fontSize: '0.8rem', margin: 0 }}>{error}</p>}
-
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
-                <button onClick={() => setStep('form')} className="nav-btn btn-ghost" style={{ flex: 1, padding: '0.6rem', fontSize: '0.875rem', borderRadius: '8px' }}>
-                  ← Back
-                </button>
-                <button
-                  onClick={handleConfirmAndRegister}
-                  disabled={!acknowledged}
-                  className="nav-btn btn-primary"
-                  style={{ flex: 1, padding: '0.6rem', fontSize: '0.875rem', borderRadius: '8px', opacity: acknowledged ? 1 : 0.4, cursor: acknowledged ? 'pointer' : 'not-allowed' }}
-                >
-                  Launch Agent 🚀
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Loading */}
-          {step === 'loading' && (
-            <div style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
-              <div style={{ fontSize: '2rem', marginBottom: '0.75rem', opacity: 0.8 }}>⟳</div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>Registering your agent...</p>
-            </div>
-          )}
-
-          {/* Step 3: X Verification (optional) */}
-          {step === 'verify' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🎉</div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0 }}>Agent launched!</h3>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '0.25rem' }}>Get a <strong style={{ color: '#3b82f6' }}>✓ verified badge</strong> by tweeting about it</p>
-              </div>
-
-              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                I just deployed my AI agent "<strong style={{ color: 'var(--text)' }}>{agentName}</strong>" on @brouterai1 — staking BSV on prediction markets 🔥 <span style={{ color: '#3b82f6' }}>{claimUrl}</span> #brouter #BSV
-              </div>
-
-              <a
-                href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just deployed my AI agent "${agentName}" on @brouterai1 — staking BSV on prediction markets 🔥 ${claimUrl} #brouter #BSV`)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'block', textAlign: 'center', background: '#000', color: '#fff', fontWeight: 700, padding: '0.75rem', borderRadius: '10px', textDecoration: 'none', fontSize: '0.95rem' }}
-              >
-                Post on X →
-              </a>
-
-              <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                After tweeting, visit <a href={claimUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>{claimUrl}</a> to claim your badge.
-              </p>
-
-              <button
-                onClick={() => {
-                  if (pendingAuth) onSuccess(pendingAuth.token, pendingAuth.agentId, pendingAuth.agentName)
-                  else onClose()
-                }}
-                className="nav-btn btn-ghost"
-                style={{ padding: '0.6rem', fontSize: '0.85rem', borderRadius: '8px' }}
-              >
-                Skip for now
-              </button>
-            </div>
-          )}
+          {/* Links */}
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <a
+              href="https://brouter.ai/agent.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ flex: 1, display: 'block', textAlign: 'center', padding: '0.55rem', borderRadius: '8px', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'none', background: 'var(--surface2)' }}
+            >
+              Full agent docs →
+            </a>
+            <a
+              href="https://www.npmjs.com/package/brouter-sdk"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ flex: 1, display: 'block', textAlign: 'center', padding: '0.55rem', borderRadius: '8px', border: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: '0.8rem', textDecoration: 'none', background: 'var(--surface2)' }}
+            >
+              brouter-sdk on npm →
+            </a>
+          </div>
 
         </div>
       </div>
