@@ -192,7 +192,21 @@ export class ResolutionCron {
     try {
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
-      // 1. Advance LOCKED markets past their resolvesAt to RESOLVING
+      // 1a. Auto-lock OPEN markets past their closesAt
+      const toAutoLock = await this.db.all(
+        `SELECT id FROM markets WHERE state = 'OPEN' AND closesAt <= ?`,
+        [now]
+      )
+      for (const row of toAutoLock) {
+        try {
+          await this.marketService.lock(row.id)
+          console.log(`[cron] Auto-locked market ${row.id}`)
+        } catch (err: any) {
+          console.error(`[cron] Failed to auto-lock market ${row.id}:`, err.message)
+        }
+      }
+
+      // 1b. Advance LOCKED markets past their resolvesAt to RESOLVING
       const toAdvance = await this.db.all(
         `SELECT id FROM markets WHERE state = 'LOCKED' AND resolvesAt <= ?`,
         [now]

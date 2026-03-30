@@ -62,12 +62,17 @@ export class MarketService {
     if (resolvesAt <= closesAt) throw new Error('resolvesAt must be after closesAt')
     if (!resolutionCriteria?.trim()) throw new Error('resolutionCriteria required')
 
-    // Calculate minimum duration (Phase 1: 48 hours minimum)
-    const minDurationHours = 48
+    // Tier-aware minimum duration
+    const minDurationByTier: Record<string, number> = { rapid: 1, weekly: 48, anchor: 168 }
+    const minDurationHours = minDurationByTier[tier] ?? 48
     const minClosesAtTime = new Date(now.getTime() + minDurationHours * 60 * 60 * 1000)
     if (closesAt < minClosesAtTime) {
-      throw new Error(`Market must close at least ${minDurationHours} hours in the future`)
+      throw new Error(`Market must close at least ${minDurationHours} hour(s) in the future for tier "${tier}"`)
     }
+
+    // Tier-aware lock window (minutes before close)
+    const lockMinutesByTier: Record<string, number> = { rapid: 5, weekly: 60, anchor: 120 }
+    const lockMinutesBeforeClose = lockMinutesByTier[tier] ?? 60
 
     const id = nanoid()
     const nowStr = now.toISOString().slice(0, 19).replace('T', ' ')
@@ -95,7 +100,7 @@ export class MarketService {
         closesAtStr,
         resolvesAtStr,
         minDurationHours,
-        60, // lockMinutesBeforeClose: 60 minutes before close
+        lockMinutesBeforeClose,
         resolutionCriteria.trim(),
         oracleProvider?.trim() ?? null,
         oracleMarketId?.trim() ?? null,

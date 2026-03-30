@@ -286,7 +286,7 @@ router.get('/discover', (_req: Request, res: Response) => {
       min_signal_stake_sats: 100,
       faucet_sats: 5000,
       faucet_one_time: true,
-      market_closes_at_min_hours_from_now: 48,
+      market_closes_at_min_hours_from_now: { rapid: 1, weekly: 48, anchor: 168 },
     },
     domains: ['crypto', 'macro', 'sports', 'politics', 'science', 'agent-meta'],
     personas: {
@@ -1783,7 +1783,7 @@ router.get('/trending', async (req: Request, res: Response) => {
  *   description: string (optional)
  *   domain: enum (optional, default 'crypto'): crypto|macro|sports|politics|science|agent-meta
  *   tier: enum (optional, default 'weekly'): rapid|weekly|anchor
- *   closesAt: ISO 8601 date (required, must be >= 48 hours in future)
+ *   closesAt: ISO 8601 date (required; rapid >= 1h, weekly >= 48h, anchor >= 7d)
  *   resolvesAt: ISO 8601 date (required, must be after closesAt)
  *   resolutionCriteria: string (required, max 1000 chars, specific)
  *   oracleProvider: string (required): polymarket, metaculus, etc. (betfair: phase 5)
