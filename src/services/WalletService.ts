@@ -249,7 +249,7 @@ export class WalletService {
 
       // Build tx manually — TxBuilder rejects 0-sat OP_RETURN via isNonSpendable check
       // So we: build a change-only tx first, then inject the OP_RETURN output before signing
-      const FEE_SATS = 300 // ~300 sats for anchor tx (~250 bytes at 1 sat/byte)
+      const FEE_SATS = 150 // ~150 sats for anchor tx (246 bytes at ~0.6 sat/byte — 5x above BSV minimum)
       const OP_RETURN_SATS = 1 // BSV relay requires at least 1 sat on OP_RETURN outputs
       const changeSats = utxo.satoshis - FEE_SATS - OP_RETURN_SATS
 
