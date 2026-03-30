@@ -416,21 +416,79 @@ export class AnvilService {
   async verifyTxOnChain(txid: string): Promise<{
     confirmed: boolean
     beef?: string
+    source?: string
     error?: string
   }> {
-    if (!this.enabled) return { confirmed: false, error: 'Anvil disabled' }
-
-    try {
-      const result = await this.get(`/tx/${txid}/beef`)
-      if (result?.beef) {
-        console.log(`[AnvilService] ✅ SPV confirmed on-chain: txid=${txid}`)
-        return { confirmed: true, beef: result.beef }
+    // 1. Try Anvil first (if enabled)
+    if (this.enabled) {
+      try {
+        const result = await this.get(`/tx/${txid}/beef`)
+        if (result?.beef) {
+          console.log(`[AnvilService] ✅ SPV confirmed via Anvil: txid=${txid}`)
+          return { confirmed: true, beef: result.beef, source: 'anvil' }
+        }
+      } catch (err: any) {
+        console.warn(`[AnvilService] ⚠️ Anvil BEEF check failed (trying fallback): ${err.message}`)
       }
-      return { confirmed: false, error: 'No BEEF proof returned — tx not yet confirmed' }
-    } catch (err: any) {
-      console.warn(`[AnvilService] ⚠️ verifyTxOnChain failed (non-fatal): ${err.message}`)
-      return { confirmed: false, error: err.message }
     }
+
+    // 2. Fallback: WhatsOnChain merkle proof
+    try {
+      const wocResult = await this.fetchJson(
+        `https://api.whatsonchain.com/v1/bsv/main/tx/${txid}/proof`
+      )
+      // WoC returns an array of proof objects, or empty array if unconfirmed
+      if (Array.isArray(wocResult) && wocResult.length > 0) {
+        console.log(`[AnvilService] ✅ SPV confirmed via WhatsOnChain: txid=${txid}`)
+        return { confirmed: true, source: 'whatsonchain' }
+      }
+    } catch (err: any) {
+      console.warn(`[AnvilService] ⚠️ WoC proof check failed (trying BananaBlocks): ${err.message}`)
+    }
+
+    // 3. Final fallback: BananaBlocks tx status
+    try {
+      const bbResult = await this.fetchJson(
+        `https://bananablocks.com/api/v1/tx/${txid}/status`
+      )
+      if (bbResult?.confirmations > 0) {
+        console.log(`[AnvilService] ✅ SPV confirmed via BananaBlocks: txid=${txid} confs=${bbResult.confirmations}`)
+        return { confirmed: true, source: 'bananablocks' }
+      }
+    } catch (err: any) {
+      console.warn(`[AnvilService] ⚠️ BananaBlocks check failed (non-fatal): ${err.message}`)
+    }
+
+    return { confirmed: false, error: 'Tx not yet confirmed on any SPV source' }
+  }
+
+  /**
+   * Simple HTTPS/HTTP GET that returns parsed JSON — used for external APIs (WoC, BananaBlocks).
+   * Unlike this.get(), does not add Anvil auth headers.
+   */
+  private fetchJson(url: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url)
+      const lib = parsed.protocol === 'https:' ? https : http
+      const options = {
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+        path: parsed.pathname + parsed.search,
+        method: 'GET',
+        headers: { 'User-Agent': 'Brouter/1.0' },
+        timeout: 10000,
+      }
+      const req = lib.request(options, (res) => {
+        let data = ''
+        res.on('data', (c) => (data += c))
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)) } catch { resolve(null) }
+        })
+      })
+      req.on('error', reject)
+      req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')) })
+      req.end()
+    })
   }
 
   private post(path: string, body: object): Promise<any> {
