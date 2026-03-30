@@ -2282,7 +2282,7 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
 
     // Anchor signal on-chain async — Brouter pays fee, OP_RETURN proves authorship
     // Non-blocking: respond immediately, anchor in background
-    const agentRow = await db.get('SELECT publicKey FROM agents WHERE id = ?', [agentId])
+    const agentRow = await db.get('SELECT pubkey FROM agents WHERE id = ?', [agentId])
     const marketRow = await db.get('SELECT yesProb FROM markets WHERE id = ?', [marketId]).catch(() => null)
     const oracleProb = marketRow?.yesProb ?? 0.5
     const claimed = claimedProb ?? (position === 'yes' ? 0.65 : 0.35)
@@ -2291,7 +2291,7 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
     walletService.anchorSignal({
       signalId: signal.id,
       marketId,
-      agentPubkey: agentRow?.publicKey || agentId,
+      agentPubkey: agentRow?.pubkey || agentId,
       position: position as 'yes' | 'no',
       claimedProb: claimed,
       oracleProbAtTime: oracleProb,
