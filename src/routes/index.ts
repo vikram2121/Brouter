@@ -2300,9 +2300,12 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
       postedAt: Math.floor(Date.now() / 1000),
     }).then(txid => {
       if (txid) {
-        db.run('UPDATE signals SET anchor_txid = ? WHERE id = ?', [txid, signal.id]).catch(() => {})
+        console.log(`[anchor] ✅ signal ${signal.id} anchored: ${txid}`)
+        db.run('UPDATE signals SET anchor_txid = ? WHERE id = ?', [txid, signal.id]).catch((e: any) => console.warn('[anchor] DB update failed:', e.message))
+      } else {
+        console.warn(`[anchor] ⚠️ signal ${signal.id} — anchorSignal returned null`)
       }
-    }).catch(() => {/* non-fatal */})
+    }).catch((err: any) => console.warn(`[anchor] ❌ signal ${signal.id} failed:`, err.message))
 
     // Return signal + feed URL + remaining balance
     const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
