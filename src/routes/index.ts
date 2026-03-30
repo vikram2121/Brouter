@@ -368,12 +368,16 @@ router.post('/auth/verify', authChallengeLimiter, async (req: Request, res: Resp
  */
 router.post('/agents/register', async (req: Request, res: Response) => {
   try {
-    const { name, publicKey, description, bsvAddress, persona, callbackUrl, loopEnabled } = req.body
+    const { name, publicKey, description, bsvAddress, persona, callbackUrl, loopEnabled, callbackSecret: suppliedSecret } = req.body
     const ip = getIp(req)
 
     if (callbackUrl && typeof callbackUrl === 'string' &&
         !callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) {
       return fail(res, 'callbackUrl must be a valid URL', 400)
+    }
+
+    if (suppliedSecret !== undefined && (typeof suppliedSecret !== 'string' || suppliedSecret.length < 16)) {
+      return fail(res, 'callbackSecret must be a string of at least 16 characters', 400)
     }
 
     const agent = await agentService.register({ name, publicKey, description, bsvAddress, ip })
@@ -396,16 +400,29 @@ router.post('/agents/register', async (req: Request, res: Response) => {
       }
     }
 
-    // Store callbackUrl + generate per-agent callback_secret
+    // Store callbackUrl + callback_secret (agent-supplied or auto-generated)
     let plaintextSecret: string | null = null
+    let secretWasGenerated = false
     if (callbackUrl && typeof callbackUrl === 'string') {
-      plaintextSecret = randomBytes(32).toString('hex')
-      const hashedSecret = createHash('sha256').update(plaintextSecret).digest('hex')
-      const loopEnabledVal = loopEnabled !== false ? 1 : 0
-      await db.run(
-        'UPDATE agents SET callback_url = ?, callback_secret = ?, loop_enabled = ? WHERE id = ?',
-        [callbackUrl.slice(0, 500), hashedSecret, loopEnabledVal, agent.id]
-      )
+      if (suppliedSecret) {
+        // Agent supplied their own secret — hash and store it; don't echo it back
+        const hashedSecret = createHash('sha256').update(suppliedSecret).digest('hex')
+        const loopEnabledVal = loopEnabled !== false ? 1 : 0
+        await db.run(
+          'UPDATE agents SET callback_url = ?, callback_secret = ?, loop_enabled = ? WHERE id = ?',
+          [callbackUrl.slice(0, 500), hashedSecret, loopEnabledVal, agent.id]
+        )
+      } else {
+        // Auto-generate secret and return it once
+        plaintextSecret = randomBytes(32).toString('hex')
+        secretWasGenerated = true
+        const hashedSecret = createHash('sha256').update(plaintextSecret).digest('hex')
+        const loopEnabledVal = loopEnabled !== false ? 1 : 0
+        await db.run(
+          'UPDATE agents SET callback_url = ?, callback_secret = ?, loop_enabled = ? WHERE id = ?',
+          [callbackUrl.slice(0, 500), hashedSecret, loopEnabledVal, agent.id]
+        )
+      }
     }
 
     // Issue a token and store it in auth_tokens so validateToken can find it
@@ -432,9 +449,11 @@ router.post('/agents/register', async (req: Request, res: Response) => {
 
     ok(res, {
       agent, token, anvil: anvilInfo,
-      ...(plaintextSecret ? {
+      ...(secretWasGenerated && plaintextSecret ? {
         callback_secret: plaintextSecret,
         callback_note: 'Store this secret — it is shown once. Use it to verify X-Brouter-Signature on incoming loop calls.',
+      } : suppliedSecret ? {
+        callback_note: 'Your supplied callbackSecret has been stored (hashed). Brouter will use it to sign loop calls.',
       } : {}),
       verification: {
         claim_url: claimUrl,
@@ -524,8 +543,11 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const agentId = (req as any).agentId
     if (agentId !== req.params.id) return fail(res, 'Forbidden', 403)
-    const { description, callbackUrl, persona, loopEnabled } = req.body
-    if (description === undefined && callbackUrl === undefined && persona === undefined && loopEnabled === undefined) return fail(res, 'Nothing to update', 400)
+    const { description, callbackUrl, persona, loopEnabled, callbackSecret: suppliedSecret } = req.body
+    if (description === undefined && callbackUrl === undefined && persona === undefined && loopEnabled === undefined && suppliedSecret === undefined) return fail(res, 'Nothing to update', 400)
+    if (suppliedSecret !== undefined && (typeof suppliedSecret !== 'string' || suppliedSecret.length < 16)) {
+      return fail(res, 'callbackSecret must be a string of at least 16 characters', 400)
+    }
     if (typeof description === 'string' && description.length > 500) return fail(res, 'Description too long (max 500 chars)', 400)
     if (typeof callbackUrl === 'string' && callbackUrl.length > 500) return fail(res, 'callbackUrl too long (max 500 chars)', 400)
     if (typeof persona === 'string' && persona.length > 1000) return fail(res, 'Persona too long (max 1000 chars)', 400)
@@ -545,25 +567,43 @@ router.put('/agents/:id', requireAuth, async (req: Request, res: Response) => {
     }
     if (loopEnabled !== undefined) { updates.push('loop_enabled = ?'); values.push(loopEnabled ? 1 : 0) }
 
-    // Setting a new callbackUrl: generate a fresh per-agent secret
+    // Setting a new callbackUrl or rotating the callback secret
     let plaintextSecret: string | null = null
+    let secretWasGenerated = false
+    const { randomBytes, createHash } = await import('crypto')
+
     if (callbackUrl !== undefined) {
       updates.push('callback_url = ?'); values.push(callbackUrl || null)
       if (callbackUrl) {
-        const { randomBytes, createHash } = await import('crypto')
-        plaintextSecret = randomBytes(32).toString('hex')
-        const hashed = createHash('sha256').update(plaintextSecret).digest('hex')
-        updates.push('callback_secret = ?'); values.push(hashed)
+        if (suppliedSecret) {
+          // Agent supplied their own secret — hash and store it
+          const hashed = createHash('sha256').update(suppliedSecret).digest('hex')
+          updates.push('callback_secret = ?'); values.push(hashed)
+        } else {
+          // Auto-generate and return once
+          plaintextSecret = randomBytes(32).toString('hex')
+          secretWasGenerated = true
+          const hashed = createHash('sha256').update(plaintextSecret).digest('hex')
+          updates.push('callback_secret = ?'); values.push(hashed)
+        }
       } else {
         updates.push('callback_secret = ?'); values.push(null)
       }
+    } else if (suppliedSecret && !callbackUrl) {
+      // Rotate secret only (callbackUrl unchanged)
+      const hashed = createHash('sha256').update(suppliedSecret).digest('hex')
+      updates.push('callback_secret = ?'); values.push(hashed)
     }
 
     values.push(req.params.id)
     await db.run(`UPDATE agents SET ${updates.join(', ')} WHERE id = ?`, values)
     const agent = await agentService.getById(req.params.id)
-    // Return plaintext secret once (only when a new callbackUrl was set)
-    ok(res, plaintextSecret ? { ...agent, callbackSecret: plaintextSecret } : agent)
+    const extra = secretWasGenerated && plaintextSecret
+      ? { callbackSecret: plaintextSecret, callbackNote: 'Store this secret — it is shown once.' }
+      : suppliedSecret
+        ? { callbackNote: 'Your supplied callbackSecret has been stored (hashed).' }
+        : {}
+    ok(res, { ...agent, ...extra })
   } catch (error: any) {
     fail(res, error.message, 500)
   }
