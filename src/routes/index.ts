@@ -2300,8 +2300,10 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
       postedAt: Math.floor(Date.now() / 1000),
     }).then(txid => {
       if (txid) {
-        console.log(`[anchor] ✅ signal ${signal.id} anchored: ${txid}`)
-        db.run('UPDATE signals SET anchor_txid = ? WHERE id = ?', [txid, signal.id]).catch((e: any) => console.warn('[anchor] DB update failed:', e.message))
+        console.log(`[anchor] ✅ signal ${signal.id} anchored: ${txid} — writing to DB`)
+        db.run('UPDATE signals SET anchor_txid = ? WHERE id = ?', [txid, signal.id])
+          .then(() => console.log(`[anchor] DB updated: signals.anchor_txid = ${txid.slice(0,12)}... for ${signal.id}`))
+          .catch((e: any) => console.warn('[anchor] DB update failed:', e.message))
       } else {
         console.warn(`[anchor] ⚠️ signal ${signal.id} — anchorSignal returned null`)
       }
