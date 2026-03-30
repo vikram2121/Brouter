@@ -247,26 +247,42 @@ export class WalletService {
       const txHashBuf = Buffer.from(utxo.txid, 'hex').reverse()
       const scriptPubKey = fromAddr.toTxOutScript()
 
-      const txBuilder = new bsv.TxBuilder()
-      txBuilder.setFeePerKbNum(500)
-      txBuilder.setChangeAddress(fromAddr)
+      // Build tx manually — TxBuilder rejects 0-sat OP_RETURN via isNonSpendable check
+      // So we: build a change-only tx first, then inject the OP_RETURN output before signing
+      const FEE_SATS = 300 // ~300 sats for anchor tx (~250 bytes at 1 sat/byte)
+      const changeSats = utxo.satoshis - FEE_SATS
 
-      txBuilder.inputFromPubKeyHash(
-        txHashBuf,
-        utxo.vout,
-        bsv.TxOut.fromProperties(new bsv.Bn(utxo.satoshis), scriptPubKey)
-      )
-
-      // OP_RETURN output (0 sats — data only)
       const opReturnScript = new bsv.Script()
       opReturnScript.writeOpCode(bsv.OpCode.OP_RETURN)
       opReturnScript.writeBuffer(opReturnData)
-      txBuilder.outputToScript(bsv.Bn(0), opReturnScript)
 
-      txBuilder.build({ useAllInputs: true })
-      txBuilder.signWithKeyPairs([bsv.KeyPair.fromPrivKey(privKey)])
+      const tx = new bsv.Tx()
 
-      const tx = txBuilder.tx
+      // Input
+      tx.addTxIn(
+        Buffer.from(utxo.txid, 'hex').reverse(),
+        utxo.vout,
+        new bsv.Script(), // empty script — will be filled by signing
+        0xffffffff
+      )
+
+      // Output 0: OP_RETURN (0 sats)
+      tx.addTxOut(new bsv.Bn(0), opReturnScript)
+
+      // Output 1: change back to wallet
+      tx.addTxOut(new bsv.Bn(changeSats), fromAddr.toTxOutScript())
+
+      // Sign input
+      const keyPair = bsv.KeyPair.fromPrivKey(privKey)
+      const sig = tx.sign(
+        keyPair,
+        bsv.Sig.SIGHASH_ALL | bsv.Sig.SIGHASH_FORKID,
+        0,
+        scriptPubKey,
+        new bsv.Bn(utxo.satoshis)
+      )
+      const scriptSig = bsv.Script.fromPubKeyHashIn(keyPair.pubKey, sig)
+      tx.txIns[0].setScript(scriptSig)
       const txHex = tx.toHex()
       const txid = tx.id()
 
