@@ -80,7 +80,9 @@ nav {
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 100px; padding: 0.3rem 0.75rem;
   font-size: 0.75rem; color: var(--text-muted); cursor: pointer;
+  text-decoration: none; transition: border-color 0.15s, color 0.15s;
 }
+.agent-pill:hover { border-color: var(--accent); color: var(--text); }
 .agent-pill .status-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 4px var(--accent);

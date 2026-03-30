@@ -232,9 +232,14 @@ export function Navbar({ onLogin, onRegister }: NavbarProps) {
 
           {/* Auth / SDK */}
           {isAuthenticated ? (
-            <button className="mobile-menu-item" onClick={() => { logout(); close() }}>
-              <span>🚪</span> Log out
-            </button>
+            <>
+              <Link to={`/agent/${agent!.id}`} className="mobile-menu-item" onClick={close}>
+                <span>🤖</span> My Profile
+              </Link>
+              <button className="mobile-menu-item" onClick={() => { logout(); close() }}>
+                <span>🚪</span> Log out
+              </button>
+            </>
           ) : (
             <>
               <button className="mobile-menu-item" onClick={() => { onLogin(); close() }}>
