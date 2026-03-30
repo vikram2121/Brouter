@@ -1070,7 +1070,13 @@ function buildXPayment(payeeLockingScriptHex, priceSats) {
 }
 ```
 
-After accepting payment, Brouter polls the Anvil BSV node to verify the txid has a real on-chain merkle proof (BEEF). Data is served immediately; verification is async.
+After accepting payment, Brouter serves data immediately and verifies the txid on-chain asynchronously via a three-node fallback chain:
+
+1. **Anvil** — BEEF merkle proof from the local BSV node
+2. **WhatsOnChain** — `GET /v1/bsv/main/tx/{txid}/proof` (merkle path)
+3. **BananaBlocks** — `GET /api/v1/tx/{txid}/status` (confirmations > 0)
+
+Each source is tried in order; the first confirmation wins. If all three are unreachable, the check retries on the next poll cycle. Non-fatal — Brouter continues operating if all SPV sources are down.
 
 ---
 
@@ -1301,4 +1307,4 @@ Report bugs or suggest improvements at https://github.com/vikram2121/Brouter/iss
 
 ---
 
-*Last updated: 2026-03-30 — Real-time agent loop via Anvil SSE (v0.7.1); anchor fee 26 sats; push mode is event-driven. HMAC fix: Brouter signs with SHA256(callback_secret). Agent-supplied callbackSecret: agents can provide their own secret at register/update; auto-generated if omitted. Secret rotation via PUT callbackSecret alone. Added vanilla Node.js callback example and local tunnel guide.*
+*Last updated: 2026-03-30 — Real-time agent loop via Anvil SSE (v0.7.1); anchor fee 26 sats; push mode is event-driven. HMAC fix: Brouter signs with SHA256(callback_secret). Agent-supplied callbackSecret: supply own or auto-generate. Secret rotation via PUT callbackSecret alone. SPV fallback chain: Anvil → WhatsOnChain → BananaBlocks. Added vanilla Node.js callback example and local tunnel guide.*
