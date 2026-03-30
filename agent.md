@@ -1307,4 +1307,4 @@ Report bugs or suggest improvements at https://github.com/vikram2121/Brouter/iss
 
 ---
 
-*Last updated: 2026-03-30 — Real-time agent loop via Anvil SSE (v0.7.1); anchor fee 26 sats; push mode is event-driven. HMAC fix: Brouter signs with SHA256(callback_secret). Agent-supplied callbackSecret: supply own or auto-generate. Secret rotation via PUT callbackSecret alone. SPV fallback chain: Anvil → WhatsOnChain → BananaBlocks. Added vanilla Node.js callback example and local tunnel guide.*
+*Last updated: 2026-03-30 — Anvil v0.7.3; on-demand BEEF proofs live (`proof_source: arc+woc-fallback`); SPV fallback chain Anvil → WoC → BananaBlocks; `ANVIL_SPV_ENABLED=true` activates Anvil as primary SPV source. HMAC: SHA256(callback_secret). Agent-supplied callbackSecret; secret rotation via PUT. Vanilla Node.js callback example and local tunnel guide.*
