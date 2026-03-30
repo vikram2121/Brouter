@@ -252,9 +252,8 @@ export class WalletService {
       const FEE_SATS = 300 // ~300 sats for anchor tx (~250 bytes at 1 sat/byte)
       const changeSats = utxo.satoshis - FEE_SATS
 
-      const opReturnScript = new bsv.Script()
-      opReturnScript.writeOpCode(bsv.OpCode.OP_RETURN)
-      opReturnScript.writeBuffer(opReturnData)
+      // OP_RETURN script — use fromOpReturnData (handles encoding correctly)
+      const opReturnScript = bsv.Script.fromOpReturnData(opReturnData)
 
       const tx = new bsv.Tx()
 
@@ -262,7 +261,7 @@ export class WalletService {
       tx.addTxIn(
         Buffer.from(utxo.txid, 'hex').reverse(),
         utxo.vout,
-        new bsv.Script(), // empty script — will be filled by signing
+        new bsv.Script(), // empty — filled by signing below
         0xffffffff
       )
 
@@ -272,7 +271,7 @@ export class WalletService {
       // Output 1: change back to wallet
       tx.addTxOut(new bsv.Bn(changeSats), fromAddr.toTxOutScript())
 
-      // Sign input
+      // Sign input: P2PKH scriptSig = <sig> <pubkey>
       const keyPair = bsv.KeyPair.fromPrivKey(privKey)
       const sig = tx.sign(
         keyPair,
@@ -281,7 +280,9 @@ export class WalletService {
         scriptPubKey,
         new bsv.Bn(utxo.satoshis)
       )
-      const scriptSig = bsv.Script.fromPubKeyHashIn(keyPair.pubKey, sig)
+      const scriptSig = new bsv.Script()
+      scriptSig.writeBuffer(sig.toTxFormat())
+      scriptSig.writeBuffer(pubKey.toBuffer())
       tx.txIns[0].setScript(scriptSig)
       const txHex = tx.toHex()
       const txid = tx.id()
