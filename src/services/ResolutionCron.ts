@@ -262,13 +262,16 @@ export class ResolutionCron {
       // 4. Auto-expire jobs past their deadline (open/locked → expired, refund poster)
       await this.expireStaleJobs(now)
 
-      // 5. Top up from Polymarket feed (up to 5 live mirrored markets)
+      // 5. Auto-open any PROPOSED markets (seeded but not yet opened)
+      await this.openProposedMarkets()
+
+      // 6. Top up from Polymarket feed (up to 5 live mirrored markets)
       const pmSeeded = await this.polymarketFeed.topUp(5)
       if (pmSeeded > 0) {
         console.log(`[cron] Mirrored ${pmSeeded} Polymarket market(s)`)
       }
 
-      // 6. Top up with hardcoded templates if Polymarket didn't fill the gap
+      // 7. Top up with hardcoded templates if Polymarket didn't fill the gap
       const seeded = await this.seeder.maybeTopUp()
       if (seeded > 0) {
         console.log(`[cron] Seeded ${seeded} new rapid market(s) from templates`)
@@ -283,6 +286,23 @@ export class ResolutionCron {
    * Expire jobs where deadline has passed and they're still open/locked.
    * Also expire nlocktime-jobs where lockHeight has passed (best-effort via block estimate).
    */
+  /** Auto-open any markets stuck in PROPOSED state (e.g. seeded before .open() was called) */
+  private async openProposedMarkets(): Promise<void> {
+    try {
+      const proposed = await this.db.all(
+        `SELECT id FROM markets WHERE state = 'PROPOSED'`
+      )
+      for (const row of proposed) {
+        try {
+          await this.marketService.open(row.id)
+          console.log(`[cron] Auto-opened PROPOSED market: ${row.id}`)
+        } catch { /* already open or error — ignore */ }
+      }
+    } catch (err: any) {
+      console.error('[cron] openProposedMarkets error:', err.message)
+    }
+  }
+
   private async expireStaleJobs(nowIso: string): Promise<void> {
     try {
       // Jobs with explicit deadline
