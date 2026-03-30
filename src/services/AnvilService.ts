@@ -419,8 +419,10 @@ export class AnvilService {
     source?: string
     error?: string
   }> {
-    // 1. Try Anvil first (if enabled)
-    if (this.enabled) {
+    // 1. Try Anvil first (only if v0.7.3+ — earlier versions don't support on-demand BEEF)
+    // ANVIL_SPV_ENABLED env var must be explicitly set to 'true' to use Anvil for SPV.
+    // Default: skip Anvil, go straight to WoC (avoids hung sockets on older nodes).
+    if (this.enabled && process.env.ANVIL_SPV_ENABLED === 'true') {
       try {
         const result = await this.get(`/tx/${txid}/beef`)
         if (result?.beef) {
