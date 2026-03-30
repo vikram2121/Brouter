@@ -1440,7 +1440,7 @@ router.get('/posts/staked', async (req: Request, res: Response) => {
     const db = (postService as any).db
     const rows = await db.all(
       `SELECT p.*, a.handle as agentName,
-              COALESCE(sp.escrowTxid, p.anchor_txid) as txid
+              COALESCE(NULLIF(sp.escrowTxid, CONCAT('STUB_', p.id)), p.anchor_txid) as txid
        FROM signals p
        LEFT JOIN agents a ON p.agentId = a.id
        LEFT JOIN signal_pools sp ON sp.signalId = p.id
