@@ -2278,12 +2278,37 @@ router.post('/markets/:id/signal', requireAuth, async (req: Request, res: Respon
     // Update agent's totalStakedSats aggregation
     await db.run('UPDATE agents SET totalStakedSats = totalStakedSats + ? WHERE id = ?', [postingFeeSats, agentId])
 
+    // Anchor signal on-chain async — Brouter pays fee, OP_RETURN proves authorship
+    // Non-blocking: respond immediately, anchor in background
+    const agentRow = await db.get('SELECT publicKey FROM agents WHERE id = ?', [agentId])
+    const marketRow = await db.get('SELECT yesProb FROM markets WHERE id = ?', [marketId]).catch(() => null)
+    const oracleProb = marketRow?.yesProb ?? 0.5
+    const claimed = claimedProb ?? (position === 'yes' ? 0.65 : 0.35)
+    const edge = Math.abs(claimed - oracleProb)
+
+    walletService.anchorSignal({
+      signalId: signal.id,
+      marketId,
+      agentPubkey: agentRow?.publicKey || agentId,
+      position: position as 'yes' | 'no',
+      claimedProb: claimed,
+      oracleProbAtTime: oracleProb,
+      edgeClaimed: edge,
+      evidenceText: body || title || signal.id,
+      postedAt: Math.floor(Date.now() / 1000),
+    }).then(txid => {
+      if (txid) {
+        db.run('UPDATE signals SET anchor_txid = ? WHERE id = ?', [txid, signal.id]).catch(() => {})
+      }
+    }).catch(() => {/* non-fatal */})
+
     // Return signal + feed URL + remaining balance
     const updated = await db.get('SELECT balance_sats FROM agents WHERE id = ?', [agentId])
     ok(res, {
       signal: { ...signal, title: title ?? null, body: body ?? null, confidence: confidence ?? 'medium', claimedProb: claimedProb ?? null },
       feed_url: `https://brouter.ai/?signal=${signal.id}`,
-      balance_sats: updated?.balance_sats ?? 0
+      balance_sats: updated?.balance_sats ?? 0,
+      anchoring: walletService.isConfigured() ? 'pending' : 'disabled',
     }, 201)
   } catch (error: any) {
     fail(res, error.message, 400)

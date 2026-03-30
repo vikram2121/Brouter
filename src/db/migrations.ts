@@ -483,6 +483,14 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE signal_pools MODIFY COLUMN marketId VARCHAR(255) NULL`) } catch {}
     }
   },
+  {
+    id: '028_signals_anchor_txid',
+    description: 'Add anchor_txid to signals — BSV on-chain proof of claim (OP_RETURN, funded by Brouter)',
+    up: async (db) => {
+      await db.run(`ALTER TABLE signals ADD COLUMN IF NOT EXISTS anchor_txid VARCHAR(64) NULL`)
+      await db.run(`ALTER TABLE signals ADD COLUMN IF NOT EXISTS anchor_payload_hash VARCHAR(64) NULL`)
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

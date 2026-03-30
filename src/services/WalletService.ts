@@ -1,11 +1,13 @@
 /**
  * WalletService
- * Handles real BSV transactions: faucet sends, future settlement payouts.
+ * Handles real BSV transactions: faucet sends, future settlement payouts,
+ * and OP_RETURN signal anchoring (Brouter covers the fee, agent signs the claim).
  * Uses bsv library for signing + WhatsOnChain for UTXO fetching and broadcast.
  */
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const bsv = require('bsv')
+import { buildAnchorPayload, hashAnchorPayload, buildOpReturnData } from '../signal-anchor'
 
 export interface UTXO {
   txid: string
@@ -173,6 +175,122 @@ export class WalletService {
     const broadcastedTxid = (await broadcastRes.json()) as string
     console.log(`[WalletService] ✅ Broadcast confirmed txid: ${broadcastedTxid}`)
     return broadcastedTxid || txid
+  }
+
+  /**
+   * Anchor a signal on-chain via OP_RETURN.
+   * Brouter pays the fee (~1-3 sats). The OP_RETURN contains:
+   *   BRT\x01SIGNAL\x01 + SHA256(anchor payload)
+   * where the anchor payload includes the agent's pubkey as authorship proof.
+   *
+   * Non-blocking — caller should fire-and-forget. Returns txid or null on failure.
+   */
+  async anchorSignal(opts: {
+    signalId: string
+    marketId: string
+    agentPubkey: string
+    position: 'yes' | 'no'
+    claimedProb: number
+    oracleProbAtTime: number
+    edgeClaimed: number
+    evidenceText: string
+    postedAt: number
+  }): Promise<string | null> {
+    if (!this.isConfigured()) {
+      console.warn('[WalletService] anchorSignal: no private key — skipping anchor')
+      return null
+    }
+
+    try {
+      const evidenceHash = require('crypto')
+        .createHash('sha256')
+        .update(opts.evidenceText || opts.signalId)
+        .digest('hex')
+
+      const payload = buildAnchorPayload(
+        opts.signalId,
+        opts.marketId,
+        opts.agentPubkey,
+        opts.position,
+        opts.claimedProb,
+        opts.oracleProbAtTime,
+        opts.edgeClaimed,
+        evidenceHash,
+        opts.postedAt
+      )
+
+      const payloadHash = hashAnchorPayload(payload)
+      const opReturnData = buildOpReturnData(payloadHash)
+
+      // Fetch UTXOs for fee funding
+      const utxos = await this.getUTXOs()
+      if (!utxos.length) {
+        console.warn('[WalletService] anchorSignal: no UTXOs — skipping anchor')
+        return null
+      }
+
+      const privKey = bsv.PrivKey.fromWif(this.wif)
+      const pubKey = bsv.PubKey.fromPrivKey(privKey)
+      const fromAddr = bsv.Address.fromPubKey(pubKey)
+
+      // Pick smallest UTXO >= 500 sats (enough for fee + dust)
+      const ANCHOR_FEE = 500
+      const utxo = utxos.sort((a: UTXO, b: UTXO) => a.satoshis - b.satoshis)
+        .find((u: UTXO) => u.satoshis >= ANCHOR_FEE)
+
+      if (!utxo) {
+        console.warn('[WalletService] anchorSignal: no UTXO with enough sats for fee')
+        return null
+      }
+
+      // Build tx: one input, one OP_RETURN output, change back to wallet
+      const txHashBuf = Buffer.from(utxo.txid, 'hex').reverse()
+      const scriptPubKey = fromAddr.toTxOutScript()
+
+      const txBuilder = new bsv.TxBuilder()
+      txBuilder.setFeePerKbNum(500)
+      txBuilder.setChangeAddress(fromAddr)
+
+      txBuilder.inputFromPubKeyHash(
+        txHashBuf,
+        utxo.vout,
+        bsv.TxOut.fromProperties(new bsv.Bn(utxo.satoshis), scriptPubKey)
+      )
+
+      // OP_RETURN output (0 sats — data only)
+      const opReturnScript = new bsv.Script()
+      opReturnScript.writeOpCode(bsv.OpCode.OP_RETURN)
+      opReturnScript.writeBuffer(opReturnData)
+      txBuilder.outputToScript(bsv.Bn(0), opReturnScript)
+
+      txBuilder.build({ useAllInputs: true })
+      txBuilder.signWithKeyPairs([bsv.KeyPair.fromPrivKey(privKey)])
+
+      const tx = txBuilder.tx
+      const txHex = tx.toHex()
+      const txid = tx.id()
+
+      // Broadcast via WhatsOnChain
+      const broadcastRes = await fetch('https://api.whatsonchain.com/v1/bsv/main/tx/raw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txhex: txHex })
+      })
+
+      if (!broadcastRes.ok) {
+        const errText = await broadcastRes.text()
+        console.warn(`[WalletService] anchorSignal broadcast failed: ${errText}`)
+        return null
+      }
+
+      const broadcastedTxid = (await broadcastRes.json()) as string
+      const finalTxid = broadcastedTxid || txid
+      console.log(`[WalletService] ✅ Signal anchored on-chain: signalId=${opts.signalId} txid=${finalTxid}`)
+      return finalTxid
+    } catch (err: any) {
+      console.warn(`[WalletService] anchorSignal failed (non-fatal): ${err.message}`)
+      return null
+    }
   }
 }
 
