@@ -250,7 +250,8 @@ export class WalletService {
       // Build tx manually — TxBuilder rejects 0-sat OP_RETURN via isNonSpendable check
       // So we: build a change-only tx first, then inject the OP_RETURN output before signing
       const FEE_SATS = 300 // ~300 sats for anchor tx (~250 bytes at 1 sat/byte)
-      const changeSats = utxo.satoshis - FEE_SATS
+      const OP_RETURN_SATS = 1 // BSV relay requires at least 1 sat on OP_RETURN outputs
+      const changeSats = utxo.satoshis - FEE_SATS - OP_RETURN_SATS
 
       // OP_RETURN script — use fromOpReturnData (handles encoding correctly)
       const opReturnScript = bsv.Script.fromOpReturnData(opReturnData)
@@ -265,8 +266,8 @@ export class WalletService {
         0xffffffff
       )
 
-      // Output 0: OP_RETURN (0 sats)
-      tx.addTxOut(new bsv.Bn(0), opReturnScript)
+      // Output 0: OP_RETURN (1 sat — BSV relay rejects dust at 0)
+      tx.addTxOut(new bsv.Bn(OP_RETURN_SATS), opReturnScript)
 
       // Output 1: change back to wallet
       tx.addTxOut(new bsv.Bn(changeSats), fromAddr.toTxOutScript())
