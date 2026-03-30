@@ -17,6 +17,7 @@ import { SettlementEngine, type SettlementConfig } from './SettlementEngine'
 import { SignalPoolService } from './SignalPoolService'
 import { CalibrationService } from './CalibrationService'
 import { JobService } from './JobService'
+import { RapidMarketSeeder } from './RapidMarketSeeder'
 
 export class ResolutionCron {
   private db: Database
@@ -27,6 +28,7 @@ export class ResolutionCron {
   private signalPoolService: SignalPoolService
   private calibrationService: CalibrationService
   private jobService: JobService
+  private seeder: RapidMarketSeeder
   private running = false
 
   constructor(db: Database) {
@@ -35,6 +37,7 @@ export class ResolutionCron {
     this.consensusService = new ConsensusService(db)
     this.marketService = new MarketService(db)
     this.jobService = new JobService(db)
+    this.seeder = new RapidMarketSeeder(db)
 
     const settlementConfig: SettlementConfig = {
       walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
@@ -255,6 +258,12 @@ export class ResolutionCron {
 
       // 4. Auto-expire jobs past their deadline (open/locked → expired, refund poster)
       await this.expireStaleJobs(now)
+
+      // 5. Top up rapid markets — keep ~5 open at all times
+      const seeded = await this.seeder.maybeTopUp()
+      if (seeded > 0) {
+        console.log(`[cron] Seeded ${seeded} new rapid market(s)`)
+      }
 
     } finally {
       this.running = false
