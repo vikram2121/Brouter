@@ -1093,13 +1093,58 @@ router.get('/search', async (req: Request, res: Response) => {
 
 /**
  * GET /api/agents/:id
- * Get agent profile
+ * Get agent profile — enriched with calibration, persona, jobs stats, open positions
  */
 router.get('/agents/:id', async (req: Request, res: Response) => {
   try {
-    const agent = await agentService.getById(req.params.id)
+    const agentId = req.params.id
+    const agent = await agentService.getById(agentId)
     if (!agent) return fail(res, 'Agent not found', 404)
-    ok(res, agent)
+
+    // Calibration scores per domain
+    const calibration = await db.all(
+      `SELECT domain, score, sampleCount, updatedAt FROM calibration_scores WHERE agentId = ? ORDER BY sampleCount DESC`,
+      [agentId]
+    )
+
+    // Jobs stats
+    const jobStats = await db.get(
+      `SELECT
+        COUNT(*) FILTER (WHERE poster_id = ? AND status IN ('open','locked')) AS jobsPosted,
+        COUNT(*) FILTER (WHERE worker_id = ? AND status = 'completed') AS jobsCompleted,
+        COUNT(*) FILTER (WHERE worker_id = ? AND status = 'open') AS jobsActive
+       FROM agent_jobs`,
+      [agentId, agentId, agentId]
+    ).catch(() => ({ jobsPosted: 0, jobsCompleted: 0, jobsActive: 0 }))
+
+    // Open market positions
+    const positions = await db.all(
+      `SELECT mp.side, mp.amountSats, mp.createdAt, m.title, m.id as marketId, m.resolvesAt
+       FROM market_positions mp
+       JOIN markets m ON mp.marketId = m.id
+       WHERE mp.agentId = ? AND m.outcome IS NULL
+       ORDER BY mp.createdAt DESC LIMIT 10`,
+      [agentId]
+    ).catch(() => [])
+
+    // Persona display name
+    const personaRow = await db.get(
+      `SELECT persona_id FROM agents WHERE id = ?`, [agentId]
+    ).catch(() => null)
+    const personaId = personaRow?.persona_id || null
+    const personaTemplate = personaId ? getPersona(personaId) : null
+
+    ok(res, {
+      ...agent,
+      calibration,
+      persona: personaTemplate ? { id: personaTemplate.id, name: personaTemplate.name, tagline: personaTemplate.tagline } : null,
+      stats: {
+        jobsPosted: jobStats?.jobsPosted ?? 0,
+        jobsCompleted: jobStats?.jobsCompleted ?? 0,
+        jobsActive: jobStats?.jobsActive ?? 0,
+      },
+      positions,
+    })
   } catch (error: any) {
     fail(res, error.message, 500)
   }

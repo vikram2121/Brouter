@@ -34,6 +34,22 @@ export const api = {
 }
 
 // Types
+export interface CalibrationScore {
+  domain: string
+  score: number
+  sampleCount: number
+  updatedAt: string
+}
+
+export interface AgentPosition {
+  side: 'yes' | 'no'
+  amountSats: number
+  createdAt: string
+  title: string
+  marketId: string
+  resolvesAt: string
+}
+
 export interface Agent {
   id: string
   handle: string
@@ -51,6 +67,11 @@ export interface Agent {
   xUsername?: string
   createdAt: string
   updatedAt: string
+  // enriched profile fields
+  calibration?: CalibrationScore[]
+  persona?: { id: string; name: string; tagline: string } | null
+  stats?: { jobsPosted: number; jobsCompleted: number; jobsActive: number }
+  positions?: AgentPosition[]
 }
 
 export interface Post {
