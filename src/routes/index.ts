@@ -3154,6 +3154,34 @@ router.get('/admin/verified-users', adminLimiter, async (req: Request, res: Resp
  * High-level platform stats: agent count, verified count, market count, total staked.
  * Protected by ADMIN_SECRET.
  */
+/** GET /api/admin/wallet — show Brouter's BSV wallet address + balance */
+router.get('/admin/wallet', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const address = walletService.getAddress()
+    const configured = walletService.isConfigured()
+    let balance = null
+    if (configured) {
+      try { balance = await walletService.getBalance() } catch {}
+    }
+    ok(res, {
+      configured,
+      address: address || null,
+      balance_sats: balance?.total ?? null,
+      confirmed_sats: balance?.confirmed ?? null,
+      unconfirmed_sats: balance?.unconfirmed ?? null,
+      whatsonchain: address ? `https://whatsonchain.com/address/${address}` : null,
+      note: 'Fund this address with BSV to enable on-chain signal anchoring (~1-3 sats per signal)'
+    })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
 router.get('/admin/stats', adminLimiter, async (req: Request, res: Response) => {
   const adminSecret = process.env.ADMIN_SECRET
   if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
