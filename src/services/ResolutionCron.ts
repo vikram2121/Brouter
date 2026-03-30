@@ -18,6 +18,7 @@ import { SignalPoolService } from './SignalPoolService'
 import { CalibrationService } from './CalibrationService'
 import { JobService } from './JobService'
 import { RapidMarketSeeder } from './RapidMarketSeeder'
+import { PolymarketFeed } from './PolymarketFeed'
 
 export class ResolutionCron {
   private db: Database
@@ -29,6 +30,7 @@ export class ResolutionCron {
   private calibrationService: CalibrationService
   private jobService: JobService
   private seeder: RapidMarketSeeder
+  private polymarketFeed: PolymarketFeed
   private running = false
 
   constructor(db: Database) {
@@ -38,6 +40,7 @@ export class ResolutionCron {
     this.marketService = new MarketService(db)
     this.jobService = new JobService(db)
     this.seeder = new RapidMarketSeeder(db)
+    this.polymarketFeed = new PolymarketFeed(db)
 
     const settlementConfig: SettlementConfig = {
       walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
@@ -259,10 +262,16 @@ export class ResolutionCron {
       // 4. Auto-expire jobs past their deadline (open/locked → expired, refund poster)
       await this.expireStaleJobs(now)
 
-      // 5. Top up rapid markets — keep ~5 open at all times
+      // 5. Top up from Polymarket feed (up to 5 live mirrored markets)
+      const pmSeeded = await this.polymarketFeed.topUp(5)
+      if (pmSeeded > 0) {
+        console.log(`[cron] Mirrored ${pmSeeded} Polymarket market(s)`)
+      }
+
+      // 6. Top up with hardcoded templates if Polymarket didn't fill the gap
       const seeded = await this.seeder.maybeTopUp()
       if (seeded > 0) {
-        console.log(`[cron] Seeded ${seeded} new rapid market(s)`)
+        console.log(`[cron] Seeded ${seeded} new rapid market(s) from templates`)
       }
 
     } finally {

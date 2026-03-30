@@ -312,7 +312,7 @@ export class RapidMarketSeeder {
           const closesAt = new Date(now.getTime() + HORIZON_HOURS * 60 * 60 * 1000)
           const resolvesAt = new Date(closesAt.getTime() + 2 * 60 * 1000) // 2 min buffer after close
 
-          await this.marketService.create(
+          const market = await this.marketService.create(
             tpl.title,
             tpl.description,
             tpl.domain,
@@ -327,6 +327,7 @@ export class RapidMarketSeeder {
             1,                // consensusWindowHours
             100               // consensusMinStakeSats
           )
+          await this.marketService.open(market.id)
           seeded++
           console.log(`[seeder] Created rapid market: "${tpl.title.slice(0, 60)}"`)
         } catch (err: any) {
