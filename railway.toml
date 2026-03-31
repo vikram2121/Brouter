@@ -2,7 +2,6 @@
 buildCommand = "npm install && rm -rf dist && npm run build && cd client && npm install && npm run build"
 
 [deploy]
-startCommand = "node start.js"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 30
 restartPolicyType = "on_failure"
