@@ -32,6 +32,9 @@ export class ResolutionCron {
   private seeder: RapidMarketSeeder
   private polymarketFeed: PolymarketFeed
   private running = false
+  // Per-market oracle cooldown: skip re-querying if checked recently (5 min)
+  private oracleLastChecked = new Map<string, number>()
+  private static ORACLE_COOLDOWN_MS = 5 * 60 * 1000
 
   constructor(db: Database) {
     this.db = db
@@ -91,6 +94,13 @@ export class ResolutionCron {
 
     // ── TIER 1: Oracle ──────────────────────────────────────────────────────
     if (!outcome && mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
+      // Cooldown: don't hammer the oracle API every 60s — throttle to once per 5 min per market
+      const lastChecked = this.oracleLastChecked.get(marketId) ?? 0
+      if (Date.now() - lastChecked < ResolutionCron.ORACLE_COOLDOWN_MS) {
+        return { outcome: 'void', method: 'void_fallback', skipped: 'oracle_cooldown' }
+      }
+      this.oracleLastChecked.set(marketId, Date.now())
+
       const oracleResult = await this.oracleResolver.resolve(
         marketRow.oracleProvider,
         marketRow.oracleMarketId
@@ -101,8 +111,9 @@ export class ResolutionCron {
         evidenceNote = `Auto-resolved by ${oracleResult.source} oracle`
         oracleVerified = true
         method = 'oracle'
+        this.oracleLastChecked.delete(marketId) // clear on success
       } else {
-        // Oracle hasn't resolved yet — skip, try again next run
+        // Oracle hasn't resolved yet — skip, try again after cooldown
         return { outcome: 'void', method: 'void_fallback', skipped: 'oracle_not_ready' }
       }
     }
@@ -290,6 +301,11 @@ export class ResolutionCron {
 
     } finally {
       this.running = false
+      // Prune stale oracle cooldown entries (resolved markets no longer in RESOLVING)
+      const cutoff = Date.now() - 60 * 60 * 1000 // drop entries older than 1h
+      for (const [id, ts] of this.oracleLastChecked) {
+        if (ts < cutoff) this.oracleLastChecked.delete(id)
+      }
     }
   }
 
