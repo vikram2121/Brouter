@@ -57,7 +57,7 @@ async function triggerAgentLoop(reason: string): Promise<void> {
   })
 }
 
-function connectSSE(topic: string, backoffMs = 2000): void {
+function connectSSE(topic: string, backoffMs = 5000): void {
   const anvilUrl = ANVIL_NODE_URL.replace(/\/$/, '')
   const url = `${anvilUrl}/data/subscribe?topic=${encodeURIComponent(topic)}`
   console.log(`[AnvilSSE] Subscribing to ${topic} at ${anvilUrl}`)
@@ -84,7 +84,9 @@ function connectSSE(topic: string, backoffMs = 2000): void {
     }
 
     console.log(`[AnvilSSE] ✅ Connected to topic: ${topic}`)
-    backoffMs = 2000 // reset on successful connect
+    // Track connect time — only reset backoff if we stayed connected for ≥30s
+    // (prevents rapid reconnect loop when Anvil closes stream immediately)
+    const connectedAt = Date.now()
 
     let buffer = ''
     res.setEncoding('utf8')
@@ -109,19 +111,25 @@ function connectSSE(topic: string, backoffMs = 2000): void {
     })
 
     res.on('end', () => {
-      console.warn(`[AnvilSSE] ${topic}: stream ended — reconnecting in ${backoffMs}ms`)
-      setTimeout(() => connectSSE(topic, Math.min(backoffMs * 2, 60_000)), backoffMs)
+      const uptime = Date.now() - connectedAt
+      // Only reset backoff to fast if we had a stable connection (≥30s)
+      // If stream dies immediately, keep backoff growing to avoid reconnect storm
+      const nextBackoff = uptime >= 30_000 ? 5000 : Math.min(backoffMs * 2, 60_000)
+      console.warn(`[AnvilSSE] ${topic}: stream ended (uptime ${Math.round(uptime/1000)}s) — reconnecting in ${nextBackoff}ms`)
+      setTimeout(() => connectSSE(topic, nextBackoff), nextBackoff)
     })
 
     res.on('error', (e: Error) => {
-      console.warn(`[AnvilSSE] ${topic}: stream error — ${e.message} — reconnecting in ${backoffMs}ms`)
-      setTimeout(() => connectSSE(topic, Math.min(backoffMs * 2, 60_000)), backoffMs)
+      const nextBackoff = Math.min(backoffMs * 2, 60_000)
+      console.warn(`[AnvilSSE] ${topic}: stream error — ${e.message} — reconnecting in ${nextBackoff}ms`)
+      setTimeout(() => connectSSE(topic, nextBackoff), nextBackoff)
     })
   })
 
   req.on('error', (e: Error) => {
-    console.warn(`[AnvilSSE] ${topic}: connection failed — ${e.message} — retry in ${backoffMs}ms`)
-    setTimeout(() => connectSSE(topic, Math.min(backoffMs * 2, 60_000)), backoffMs)
+    const nextBackoff = Math.min(backoffMs * 2, 60_000)
+    console.warn(`[AnvilSSE] ${topic}: connection failed — ${e.message} — retry in ${nextBackoff}ms`)
+    setTimeout(() => connectSSE(topic, nextBackoff), nextBackoff)
   })
 
   req.end()
