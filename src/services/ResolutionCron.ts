@@ -64,7 +64,8 @@ export class ResolutionCron {
     const marketRow = await this.db.get(
       `SELECT id, state, resolution_mechanism, oracleProvider, oracleMarketId,
               consensus_window_hours, consensus_opened_at,
-              commit_phase_ends_at, reveal_phase_ends_at
+              commit_phase_ends_at, reveal_phase_ends_at,
+              resolvesAt, updatedAt
        FROM markets WHERE id = ?`,
       [marketId]
     )
@@ -78,8 +79,18 @@ export class ResolutionCron {
     let evidenceNote: string | null = null
     let oracleVerified = false
 
+    // ── Stale void: oracle_auto with no conditionId, or stuck >15 min ──────
+    const staleThresholdMs = 15 * 60 * 1000
+    const resolvedAtMs = new Date(marketRow.resolvesAt).getTime()
+    const isStale = (Date.now() - resolvedAtMs) > staleThresholdMs
+    if (mechanism === 'oracle_auto' && !marketRow.oracleMarketId && isStale) {
+      outcome = 'void'
+      evidenceNote = 'Auto-voided: no oracle conditionId and market expired'
+      method = 'void_fallback'
+    }
+
     // ── TIER 1: Oracle ──────────────────────────────────────────────────────
-    if (mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
+    if (!outcome && mechanism === 'oracle_auto' && marketRow.oracleProvider && marketRow.oracleMarketId) {
       const oracleResult = await this.oracleResolver.resolve(
         marketRow.oracleProvider,
         marketRow.oracleMarketId
@@ -97,7 +108,7 @@ export class ResolutionCron {
     }
 
     // ── TIER 2/3: Consensus ─────────────────────────────────────────────────
-    if (mechanism === 'consensus') {
+    if (!outcome && mechanism === 'consensus') {
       const isCommitReveal = !!marketRow.reveal_phase_ends_at
       const now = new Date()
 
@@ -136,7 +147,7 @@ export class ResolutionCron {
     }
 
     // ── Manual markets — skip (no auto-resolution) ─────────────────────────
-    if (mechanism === 'manual') {
+    if (!outcome && mechanism === 'manual') {
       return { outcome: 'void', method: 'void_fallback', skipped: 'manual_mechanism' }
     }
 
