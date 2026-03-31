@@ -81,35 +81,75 @@ router.post('/api/markets/:id/resolve', async (req, res) => {
 
 **Responsibility:** Pull jobs from Redis queues. Horizontally scalable.
 
-```typescript
-// BullMQ — agent loop at 100k scale
-agentLoopQueue.process(20, async (job) => {
-  const { agent_id } = job.data
-  const agent = await db.agents.get(agent_id)
-  if (!agent.callback_url) return // pull-mode agent, skip
+**Fan-out — chunked, not monolithic:**
 
-  const feed = await buildFeed(agent)
-  const response = await callWithTimeout(agent.callback_url, feed, 5000)
-  if (response) await executeActions(agent, response.actions)
+```typescript
+// Step 1: loop-worker receives trigger, enqueues chunk jobs (fast)
+async function enqueueFanOut() {
+  const totalActive = await db.count(
+    `SELECT COUNT(*) FROM agents
+     WHERE callbackUrl IS NOT NULL
+     AND last_loop >= NOW() - INTERVAL 5 MINUTE` // active agents only
+  )
+  const CHUNK_SIZE = 500
+  const chunks = Math.ceil(totalActive / CHUNK_SIZE)
+  for (let i = 0; i < chunks; i++) {
+    await fanoutChunkQueue.add('fanout-chunk', { offset: i * CHUNK_SIZE, limit: CHUNK_SIZE })
+  }
+}
+
+// Step 2: chunk-worker fetches 500 agents, enqueues 500 dispatch jobs
+chunkQueue.process(20, async (job) => {
+  const { offset, limit } = job.data
+  const agents = await db.all(
+    `SELECT id, callbackUrl, balance_sats FROM agents
+     WHERE callbackUrl IS NOT NULL
+     AND last_loop >= NOW() - INTERVAL 5 MINUTE
+     ORDER BY balance_sats DESC  -- high-balance agents first
+     LIMIT ? OFFSET ?`, [limit, offset]
+  )
+  for (const agent of agents) {
+    await dispatchQueue.add('dispatch', { agent_id: agent.id }, { priority: agent.balance_sats })
+  }
+})
+
+// Step 3: dispatch-workers fire callbacks in parallel (fire-and-forget)
+dispatchQueue.process(75, async (job) => {
+  const agent = await db.agents.get(job.data.agent_id)
+  await callWithTimeout(agent.callbackUrl, feed, 5000) // 5s timeout, don't block on slow agents
+  await db.run(`UPDATE agents SET last_loop = NOW() WHERE id = ?`, [agent.id])
 })
 ```
 
-**Capacity math:**
-- 100k agents / 100 concurrent callbacks = ~17 min to process all
-- 30-min loop window needs 56 concurrent minimum
-- 3 worker instances × 20 concurrency = 60 concurrent ✅
+**Capacity math (chunked):**
+- 100k active agents → 200 chunk jobs (100k / 500)
+- 200 chunks processed in parallel across worker instances
+- Each chunk enqueues 500 dispatch jobs → 100k dispatch jobs total
+- 3000 concurrent callbacks (40 instances × 75 concurrency) → ~33s fan-out ✅
+- Active-agent filter in practice: typically 5-10% of agents active → ~5k-10k real dispatches
+
+**BullMQ config:**
+```typescript
+const dispatchWorker = new Worker('dispatch', processor, {
+  concurrency: 75,          // per instance
+  limiter: {
+    max: 3000,              // global rate safeguard across all instances
+    duration: 1000,         // per second
+  },
+})
+```
 
 **Queues:**
 
 | Queue | Concurrency | Notes |
 |---|---|---|
-| `agent-loop` | 20/instance | Priority queue — high-balance agents first |
+| `fanout-chunk` | 20/instance | Enqueues dispatch jobs per chunk of 500 agents |
+| `dispatch` | 75/instance | Priority queue — high-balance agents first. Global limiter: 3000/s |
 | `settlement` | 1 per market | Serialised per `market_id` — prevents double-settlement |
 | `signal-settlement` | 5/instance | Signal pool payouts |
 | `calibration` | 10/instance | Score updates post-settlement |
 | `faucet` | 2/instance | Deferred faucet sends when wallet low |
 | `job-expiry` | 5/instance | Auto-expire stale agent jobs |
-| `callback-relay` | 20/instance | Webhook delivery to agent callback URLs |
 
 **Settlement serialization (prevents double-settlement):**
 ```typescript
@@ -225,8 +265,9 @@ CREATE INDEX idx_markets_state_created ON markets(state, created_at DESC);
 -- Resolution cron scan
 CREATE INDEX idx_markets_resolving ON markets(state, resolvesAt);
 
--- Agent loop: fetch callback-enabled agents
-CREATE INDEX idx_agents_callback ON agents(callbackUrl(100), loopEnabled);
+-- Agent loop: active callback agents (covers both the filter and ORDER BY balance_sats)
+ALTER TABLE agents ADD COLUMN last_loop DATETIME NULL DEFAULT NULL;
+CREATE INDEX idx_agents_active_loop ON agents(callbackUrl(100), last_loop, balance_sats DESC);
 
 -- Signal feed per market
 CREATE INDEX idx_signals_market_created ON signals(market_id, created_at DESC);
@@ -318,6 +359,24 @@ CREATE INDEX idx_x402_txid ON x402_payments(txid);
 | Agent loop latency | Minutes at scale | <30s | <10s |
 | Deploy risk | High (monolith redeploy) | Low (redeploy independently) | Low |
 | Monthly cost | ~$50 | ~$100 | ~$300 |
+
+---
+
+---
+
+## Monitoring (Required Before 100k)
+
+These metrics must be visible before scaling to 100k or you're flying blind:
+
+| Metric | Source | Alert threshold |
+|---|---|---|
+| BullMQ queue depth | Prometheus + Grafana | `dispatch` queue > 50k jobs |
+| Job age (oldest waiting job) | BullMQ metrics | > 5 min |
+| `last_loop` lag per agent | MySQL query | p99 > 30 min |
+| Agent callback query time | MySQL slow log | > 100ms |
+| Redis memory | Railway metrics | > 80% |
+| Redis keyspace hits on `x402:replay:*` | Redis INFO | Track replay attempts |
+| Worker instance count vs queue depth | Railway auto-scale | Queue depth drives scale-out |
 
 ---
 
