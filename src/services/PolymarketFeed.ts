@@ -16,8 +16,8 @@ import { Database } from '../db/connection'
 import { MarketService } from './MarketService'
 
 const GAMMA_API = 'https://gamma-api.polymarket.com'
-const FETCH_LIMIT = 50
-const MAX_SEED_PER_RUN = 5
+const FETCH_LIMIT = 20
+const MAX_SEED_PER_RUN = 3
 
 interface PolymarketMarket {
   id: string
@@ -40,6 +40,9 @@ interface PolymarketMarket {
 export class PolymarketFeed {
   private db: Database
   private marketService: MarketService
+  private migrated = false
+  private lastFetchAt = 0
+  private static FETCH_INTERVAL_MS = 5 * 60 * 1000 // throttle: fetch at most every 5 minutes
 
   constructor(db: Database) {
     this.db = db
@@ -106,7 +109,15 @@ export class PolymarketFeed {
    */
   async topUp(targetOpenCount = 5): Promise<number> {
     try {
-      await this.migrate()
+      // Migrate once per process lifetime
+      if (!this.migrated) {
+        await this.migrate()
+        this.migrated = true
+      }
+
+      // Throttle: skip if we fetched recently
+      const nowMs = Date.now()
+      if (nowMs - this.lastFetchAt < PolymarketFeed.FETCH_INTERVAL_MS) return 0
 
       // How many open Polymarket-sourced markets do we already have?
       const existingOpen = await this.db.get(
@@ -120,6 +131,7 @@ export class PolymarketFeed {
       if (needed === 0) return 0
 
       const markets = await this.fetchPolymarkets()
+      this.lastFetchAt = nowMs // update throttle timestamp after successful fetch
       const existing = await this.getExistingConditionIds()
 
       const now = new Date()
