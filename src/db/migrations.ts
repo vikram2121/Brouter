@@ -491,6 +491,20 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE signals ADD COLUMN anchor_payload_hash VARCHAR(64) NULL`) } catch {}
     }
   },
+  {
+    id: '029_agent_loop_indexes',
+    description: 'Add indexes for active-agent fan-out query (Phase 8 worker split)',
+    up: async (db) => {
+      // Active callback agents ordered by balance — covers the chunked fan-out query:
+      // WHERE callback_url IS NOT NULL AND loop_seen_at >= NOW() - INTERVAL 5 MINUTE
+      // ORDER BY balance_sats DESC
+      try { await db.run(`CREATE INDEX IF NOT EXISTS idx_agents_active_loop ON agents (callback_url(100), loop_seen_at, balance_sats)`) } catch {}
+      // Market state + created_at — covers feed query (most common read)
+      try { await db.run(`CREATE INDEX IF NOT EXISTS idx_markets_state_created ON markets (state, created_at)`) } catch {}
+      // Signal feed per market
+      try { await db.run(`CREATE INDEX IF NOT EXISTS idx_signals_market_created ON signals (market_id, created_at)`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

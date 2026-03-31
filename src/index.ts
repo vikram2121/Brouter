@@ -11,12 +11,8 @@ import { db } from './db/connection'
 import routes from './routes'
 import adminDashboard from './routes/admin-dashboard'
 import { openApiSpec } from './openapi'
-import { ResolutionCron } from './services/ResolutionCron'
 import { AnvilService } from './services/AnvilService'
-import { initQueue, startWorkers } from './lib/agentQueue'
-import { dispatchAgentCallback } from './routes/agentLoop'
 import { notify } from './lib/notify'
-import { startAnvilSSE } from './services/AnvilSSEService'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -173,21 +169,8 @@ const start = async () => {
         dbReady = true
         console.log('✅ Database connected')
 
-        // Start autonomous resolution cron (60s interval)
-        const cron = new ResolutionCron(db)
-        const cronHandle = cron.start(60_000)
-
-        // Initialise agent loop queue + workers (no-ops if REDIS_URL not set)
-        initQueue()
-        startWorkers(async (job) => {
-          await dispatchAgentCallback(job.agent_id, db)
-        })
-
-        // Subscribe to Anvil SSE for real-time agent loop triggers
-        startAnvilSSE()
-
         // Startup alert
-        await notify(`Brouter started (${process.env.NODE_ENV || 'development'})`, 'info')
+        await notify(`Brouter API started (${process.env.NODE_ENV || 'development'})`, 'info')
 
         // Error rate monitor — sample every 5 minutes, alert if >1% 5xx
         let recentErrors = 0
@@ -204,10 +187,6 @@ const start = async () => {
           recentErrors = 0
           recentTotal = 0
         }, 5 * 60 * 1000)
-
-        // Stop cron on graceful shutdown
-        process.on('SIGINT', () => clearInterval(cronHandle))
-        process.on('SIGTERM', () => clearInterval(cronHandle))
 
         return
       } catch (error) {
