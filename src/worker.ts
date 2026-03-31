@@ -11,6 +11,7 @@
 import * as dotenv from 'dotenv'
 dotenv.config()
 
+import http from 'http'
 import { db } from './db/connection'
 import { ResolutionCron } from './services/ResolutionCron'
 import { initQueue, startWorkers } from './lib/agentQueue'
@@ -50,6 +51,15 @@ async function start() {
   // Start resolution cron — leader-elected via try/catch on overlapping runs
   const cron = new ResolutionCron(db)
   const cronHandle = cron.start(CRON_INTERVAL_MS)
+
+  // Minimal health check server for Railway
+  const PORT = parseInt(process.env.PORT || '3001', 10)
+  http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ status: 'ok', service: 'brouter-worker' }))
+  }).listen(PORT, () => {
+    console.log(`[worker] Health check server on :${PORT}`)
+  })
 
   await notify('brouter-worker started', 'info')
   console.log(`🚀 brouter-worker running (cron every ${CRON_INTERVAL_MS / 1000}s)`)
