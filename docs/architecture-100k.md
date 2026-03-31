@@ -122,7 +122,9 @@ if (!lock) return // another worker instance is already settling this market
 
 ## Service 3: `brouter-oracle` — External Data
 
-**Responsibility:** All external data ingestion. No user traffic. No DB writes except price history and oracle results.
+**Responsibility:** All external data ingestion. No user traffic. No DB writes except oracle results.
+
+_Note: Betfair out of scope. Oracle sources are Polymarket + future integrations TBD._
 
 ### Polymarket — webhooks instead of polling
 
@@ -144,32 +146,6 @@ router.post('/webhooks/polymarket', async (req, res) => {
 ```
 
 Zero polling overhead. Scales to unlimited markets.
-
-### Betfair — Exchange Stream (persistent WebSocket)
-
-```typescript
-// Subscribe once, receive all price changes in real time
-const stream = new BetfairStream(credentials)
-stream.subscribe({
-  marketFilter: { eventTypeIds: ['1', '2', '10'] } // soccer, tennis, specials
-})
-
-stream.on('marketChange', async (market) => {
-  if (market.status === 'CLOSED') {
-    await settlementQueue.add('settle-market', {
-      oracle_source: 'betfair',
-      oracle_market_id: market.id,
-      outcome: determineOutcome(market),
-    })
-  }
-  // Record price history
-  await priceHistoryQueue.add('record-price', {
-    market_id: market.id,
-    implied_prob: 1 / market.best_back_price,
-    recorded_at: Date.now(),
-  })
-})
-```
 
 ---
 
