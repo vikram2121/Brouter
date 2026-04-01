@@ -47,10 +47,12 @@ async function start() {
   const app = express()
   app.use(express.json())
 
-  // Health check
-  app.get('/health', (_req, res) => {
+  // Health check (both paths — Railway probes /api/health)
+  const healthHandler = (_req: any, res: any) => {
     res.json({ status: 'ok', service: 'brouter-oracle' })
-  })
+  }
+  app.get('/health', healthHandler)
+  app.get('/api/health', healthHandler)
 
   /**
    * Polymarket webhook receiver.
