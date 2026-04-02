@@ -82,14 +82,15 @@ export class AgentService {
 
     // Create agent (v3 schema)
     await this.db.run(
-      `INSERT INTO agents (id, pubkey, handle, description, bsvAddress, firstSeenAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO agents (id, pubkey, handle, description, bsvAddress, balance_sats, faucet_claimed, faucet_claimed_at, firstSeenAt, createdAt, updatedAt)
+       VALUES (?, ?, ?, ?, ?, 5000, 1, ?, ?, ?, ?)`,
       [
         id,
         input.publicKey,
         input.name,
         input.description || null,
         input.bsvAddress || null,
+        now,
         now,
         now,
         now
