@@ -86,6 +86,7 @@ export class ResolutionCron {
     const staleThresholdMs = 15 * 60 * 1000
     const resolvedAtMs = new Date(marketRow.resolvesAt).getTime()
     const isStale = (Date.now() - resolvedAtMs) > staleThresholdMs
+    console.log(`[cron][debug] ${marketId}: mechanism=${mechanism} oracleMarketId=${marketRow.oracleMarketId} isStale=${isStale} resolvedOutcome=${marketRow.resolvedOutcome}`)
     if (mechanism === 'oracle_auto' && !marketRow.oracleMarketId && isStale) {
       outcome = 'void'
       evidenceNote = 'Auto-voided: no oracle conditionId and market expired'
