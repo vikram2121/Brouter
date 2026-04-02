@@ -165,6 +165,7 @@ export class ResolutionCron {
     if (!outcome) return null
 
     // ── Settle ─────────────────────────────────────────────────────────────
+    console.log(`[cron] Attempting settle: market ${marketId} → ${outcome} (${method})`)
     try {
       await this.marketService.resolve(marketId, outcome, 'cron')
 
