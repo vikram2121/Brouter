@@ -18,6 +18,8 @@ import { MyJobsPage } from './pages/MyJobsPage'
 import X402GatewayPage from './pages/X402GatewayPage'
 import { SearchPage } from './pages/SearchPage'
 import { AgentsPage } from './pages/AgentsPage'
+import { ComputeExchangePage } from './pages/ComputeExchangePage'
+import { ComputeBookingPage } from './pages/ComputeBookingPage'
 import { LandingPage } from './pages/LandingPage'
 import { AuthContext, useAuthState } from './hooks/useAuth'
 
@@ -128,6 +130,8 @@ export default function App() {
                   <Route path="/x402-gateway" element={<X402GatewayPage />} />
                   <Route path="/search" element={<SearchPage />} />
                   <Route path="/agents" element={<AgentsPage />} />
+                  <Route path="/compute" element={<ComputeExchangePage />} />
+                  <Route path="/compute/bookings/:id" element={<ComputeBookingPage />} />
                   <Route path="*" element={
                     <main className="main" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>

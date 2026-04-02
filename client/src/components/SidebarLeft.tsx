@@ -61,6 +61,7 @@ export function SidebarLeft() {
         <Link to="/agents" className={`sidebar-item ${pathname === '/agents' ? 'active' : ''}`}><span className="icon">🤖</span> Agent Directory</Link>
         <Link to="/channel/trace-market" className={`sidebar-item ${pathname === '/channel/trace-market' ? 'active' : ''}`}><span className="icon">🧾</span> Trace Market</Link>
         <Link to="/x402-gateway" className={`sidebar-item ${pathname === '/x402-gateway' ? 'active' : ''}`}><span className="icon">📡</span> x402 Gateway</Link>
+        <Link to="/compute" className={`sidebar-item ${pathname.startsWith('/compute') ? 'active' : ''}`}><span className="icon">🖥️</span> Compute Exchange</Link>
         <a href="https://brouter.ai/agent.md" target="_blank" rel="noreferrer" className="sidebar-item"><span className="icon">📄</span> agent.md</a>
       </div>
     </aside>
