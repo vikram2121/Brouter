@@ -178,6 +178,92 @@ export class WalletService {
   }
 
   /**
+   * Anchor a compute booking on-chain via OP_RETURN.
+   * Records: BRT\x01COMPUTE\x01<bookingId>:<listingId>:<renterAgentId>:<escrowSats>
+   * Fire-and-forget — returns txid or null. Non-fatal if it fails.
+   */
+  async anchorComputeBooking(opts: {
+    bookingId: string
+    listingId: string
+    renterAgentId: string
+    escrowSats: number
+  }): Promise<string | null> {
+    if (!this.isConfigured()) {
+      console.warn('[WalletService] anchorComputeBooking: no private key — skipping')
+      return null
+    }
+
+    try {
+      const payload = `BRT\x01COMPUTE\x01${opts.bookingId}:${opts.listingId}:${opts.renterAgentId}:${opts.escrowSats}`
+      const payloadHash = require('crypto').createHash('sha256').update(payload).digest()
+      // Prefix: BRT + version byte + COMPUTE tag
+      const prefix = Buffer.from('425254014f4d505554450a', 'hex') // BRT\x01COMPUTE\x0a
+      const opReturnData = [prefix, payloadHash]
+
+      const utxos = await this.getUTXOs()
+      if (!utxos.length) {
+        console.warn('[WalletService] anchorComputeBooking: no UTXOs')
+        return null
+      }
+
+      const ANCHOR_FEE = 500
+      const utxo = utxos
+        .sort((a: UTXO, b: UTXO) => a.satoshis - b.satoshis)
+        .find((u: UTXO) => u.satoshis >= ANCHOR_FEE)
+      if (!utxo) {
+        console.warn('[WalletService] anchorComputeBooking: no UTXO with enough sats')
+        return null
+      }
+
+      const privKey = bsv.PrivKey.fromWif(this.wif)
+      const pubKey = bsv.PubKey.fromPrivKey(privKey)
+      const fromAddr = bsv.Address.fromPubKey(pubKey)
+
+      const FEE_SATS = 25
+      const OP_RETURN_SATS = 1
+      const changeSats = utxo.satoshis - FEE_SATS - OP_RETURN_SATS
+
+      const opReturnScript = bsv.Script.fromOpReturnData(opReturnData)
+      const scriptPubKey = fromAddr.toTxOutScript()
+
+      const tx = new bsv.Tx()
+      tx.addTxIn(Buffer.from(utxo.txid, 'hex').reverse(), utxo.vout, new bsv.Script(), 0xffffffff)
+      tx.addTxOut(new bsv.Bn(OP_RETURN_SATS), opReturnScript)
+      tx.addTxOut(new bsv.Bn(changeSats), fromAddr.toTxOutScript())
+
+      const keyPair = bsv.KeyPair.fromPrivKey(privKey)
+      const sig = tx.sign(keyPair, bsv.Sig.SIGHASH_ALL | bsv.Sig.SIGHASH_FORKID, 0, scriptPubKey, new bsv.Bn(utxo.satoshis))
+      const scriptSig = new bsv.Script()
+      scriptSig.writeBuffer(sig.toTxFormat())
+      scriptSig.writeBuffer(pubKey.toBuffer())
+      tx.txIns[0].setScript(scriptSig)
+
+      const txHex = tx.toHex()
+      const txid = tx.id()
+
+      const broadcastRes = await fetch('https://api.whatsonchain.com/v1/bsv/main/tx/raw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txhex: txHex }),
+      })
+
+      if (!broadcastRes.ok) {
+        const errText = await broadcastRes.text()
+        console.warn(`[WalletService] anchorComputeBooking broadcast failed: ${errText}`)
+        return null
+      }
+
+      const broadcastedTxid = (await broadcastRes.json()) as string
+      const finalTxid = broadcastedTxid || txid
+      console.log(`[WalletService] ✅ Compute booking anchored on-chain: bookingId=${opts.bookingId} txid=${finalTxid}`)
+      return finalTxid
+    } catch (err: any) {
+      console.warn(`[WalletService] anchorComputeBooking failed (non-fatal): ${err.message}`)
+      return null
+    }
+  }
+
+  /**
    * Anchor a signal on-chain via OP_RETURN.
    * Brouter pays the fee (~1-3 sats). The OP_RETURN contains:
    *   BRT\x01SIGNAL\x01 + SHA256(anchor payload)

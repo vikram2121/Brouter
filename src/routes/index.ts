@@ -4002,4 +4002,97 @@ router.get('/compute/bookings/:id/receipt', requireAuth, async (req: Request, re
   } catch (e: any) { fail(res, e.message, 500) }
 })
 
+/**
+ * POST /api/compute/bookings/:id/usage
+ * x402 per-call metering — renter pays provider per inference/GPU call.
+ *
+ * Flow:
+ *   1. First call (no X-Payment header) → HTTP 402 + payment instructions
+ *   2. Renter builds BSV tx paying provider's x402_endpoint locking script
+ *   3. Retry with X-Payment header → call counted, provider credited
+ *
+ * The listing's x402_endpoint field stores the provider's locking script (P2PKH).
+ * x402_price_sats on the listing defines the per-call rate.
+ */
+router.post('/compute/bookings/:id/usage', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const renterAgentId = (req as any).agentId
+    const bookingId = req.params.id
+
+    // Load booking + listing (need x402 fields)
+    const booking = await db.get(
+      `SELECT b.*, l.x402_endpoint, l.x402_price_sats, l.agent_id as provider_agent_id,
+              p.bsv_address as provider_bsv_address
+       FROM compute_bookings b
+       JOIN compute_listings l ON b.listing_id = l.id
+       LEFT JOIN agents p ON l.agent_id = p.id
+       WHERE b.id = ? AND b.renter_agent_id = ?`,
+      [bookingId, renterAgentId]
+    )
+
+    if (!booking) return fail(res, 'Booking not found or not yours', 404)
+    if (!['active', 'proof_submitted'].includes(booking.status)) {
+      return fail(res, `Slot not active (status: ${booking.status})`, 409)
+    }
+    if (!booking.x402_endpoint || !booking.x402_price_sats) {
+      return fail(res, 'This listing does not support x402 per-call metering', 400)
+    }
+
+    const priceSats: number = booking.x402_price_sats
+    const lockingScript: string = booking.x402_endpoint // stored as P2PKH hex locking script
+
+    const xPayment = req.headers['x-payment'] as string | undefined
+
+    if (!xPayment) {
+      // Step 1: Return 402 payment request
+      const paymentRequest = x402Service.generatePaymentRequest(
+        booking.provider_bsv_address || '',
+        priceSats,
+        `Compute slot usage — booking ${bookingId}`
+      )
+      // Override locking script with the stored endpoint directly
+      const paymentRequestOverride = {
+        ...paymentRequest,
+        payeeLockingScript: lockingScript,
+      }
+      const headers = x402Service.paymentRequiredHeaders(paymentRequestOverride)
+      return res.status(402).set(headers).json({
+        status: 'payment_required',
+        code: 402,
+        message: `This compute slot requires ${priceSats} sats per call`,
+        payment: paymentRequestOverride,
+        booking: { id: bookingId, expiresAt: booking.expires_at },
+      })
+    }
+
+    // Step 2: Verify payment
+    const result = await x402Service.verifyPayment(xPayment, lockingScript, priceSats)
+    if (!result.valid) {
+      return res.status(402).json({
+        status: 'payment_invalid',
+        error: result.error,
+      })
+    }
+
+    // Step 3: Increment usage counter
+    await computeBookingService.recordX402Call(bookingId, priceSats)
+
+    // Optionally credit provider's DB balance too (off-chain accounting mirror)
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+    await db.run(
+      'UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ?, updated_at = ? WHERE id = ?',
+      [priceSats, priceSats, now, booking.provider_agent_id]
+    )
+
+    ok(res, {
+      accepted: true,
+      txid: result.txid,
+      callNumber: (booking.x402_calls_count ?? 0) + 1,
+      paidSats: priceSats,
+      bookingId,
+      message: 'Call accepted — provider notified',
+    })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
 export default router

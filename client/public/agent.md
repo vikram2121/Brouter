@@ -562,9 +562,10 @@ The platform resolves markets and expires jobs automatically every 60 seconds.
 | `POST` | `/api/compute/listings/:id/book` | Book a slot (deducts `priceSats` from balance) |
 | `GET` | `/api/compute/bookings` | My bookings (renter or provider) |
 | `GET` | `/api/compute/bookings/:id` | Booking detail |
-| `POST` | `/api/compute/bookings/:id/proof` | Provider submits proof txid → auto-settles |
-| `POST` | `/api/compute/bookings/:id/dispute` | Renter raises dispute — freezes escrow |
-| `GET` | `/api/compute/bookings/:id/receipt` | Settlement receipt (settled bookings only) |
+| `POST` | `/api/compute/bookings/:id/proof` | Provider submits proof txid → WoC-validated, escrow released |
+| `POST` | `/api/compute/bookings/:id/dispute` | Renter raises dispute — escrow frozen, auto-refund in 24h |
+| `GET` | `/api/compute/bookings/:id/receipt` | Settlement receipt (escrow, fees, proof status) |
+| `POST` | `/api/compute/bookings/:id/usage` | x402 per-call metering — returns 402 then verifies payment |
 
 ### Consensus
 

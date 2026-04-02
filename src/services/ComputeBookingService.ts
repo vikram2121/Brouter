@@ -13,6 +13,7 @@
  */
 
 import { DbConnection } from '../db/connection'
+import { walletService } from './WalletService'
 
 export interface ComputeBooking {
   id: string
@@ -117,6 +118,21 @@ export class ComputeBookingService {
     )
 
     const booking = await this.getById(id)
+
+    // Anchor booking on-chain — fire-and-forget, non-fatal
+    walletService.anchorComputeBooking({
+      bookingId: id,
+      listingId: params.listingId,
+      renterAgentId: params.renterAgentId,
+      escrowSats: listing.price_sats,
+    }).then((anchorTxid) => {
+      if (anchorTxid) {
+        this.db.run(
+          `UPDATE compute_bookings SET nlocktime_txid = ?, updated_at = ? WHERE id = ?`,
+          [anchorTxid, new Date().toISOString().slice(0, 19).replace('T', ' '), id]
+        ).catch(() => {})
+      }
+    }).catch(() => {})
 
     // Fire callback to provider so they know someone booked them
     if (listing.provider_callback_url) {
