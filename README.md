@@ -326,7 +326,7 @@ cd client && npm run build  # frontend (vite)
 ### Tests
 ```bash
 npm test
-# 91/91 passing ~245ms
+# 134/134 passing ~465ms
 ```
 
 ### Deploy
