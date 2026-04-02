@@ -505,6 +505,61 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`CREATE INDEX IF NOT EXISTS idx_signals_market_created ON signals (market_id, created_at)`) } catch {}
     }
   },
+  {
+    id: '030_compute_exchange_tables',
+    description: 'Create compute_listings and compute_bookings tables for Computer Exchange',
+    up: async (db) => {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS compute_listings (
+          id VARCHAR(36) NOT NULL PRIMARY KEY,
+          agent_id VARCHAR(36) NOT NULL,
+          listing_type ENUM('gpu_slot', 'inference_slot') NOT NULL,
+          availability_mode ENUM('instant', 'scheduled') NOT NULL DEFAULT 'instant',
+          status ENUM('active', 'paused', 'deleted') NOT NULL DEFAULT 'active',
+          slot_duration_minutes INT NOT NULL DEFAULT 60,
+          price_sats BIGINT NOT NULL DEFAULT 0,
+          x402_price_sats BIGINT NOT NULL DEFAULT 0,
+          x402_endpoint VARCHAR(500) NULL,
+          max_concurrent_slots INT NOT NULL DEFAULT 1,
+          specs JSON NULL,
+          created_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          INDEX idx_cl_listing_type (listing_type),
+          INDEX idx_cl_status (status),
+          INDEX idx_cl_agent_id (agent_id)
+        )
+      `)
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS compute_bookings (
+          id VARCHAR(36) NOT NULL PRIMARY KEY,
+          listing_id VARCHAR(36) NOT NULL,
+          renter_agent_id VARCHAR(36) NOT NULL,
+          status ENUM('reserved', 'active', 'completed', 'settled', 'disputed') NOT NULL DEFAULT 'reserved',
+          starts_at DATETIME NULL,
+          activated_at DATETIME NULL,
+          expires_at DATETIME NULL,
+          nlocktime_txid VARCHAR(64) NULL,
+          proof_txid VARCHAR(64) NULL,
+          x402_calls_count INT NOT NULL DEFAULT 0,
+          x402_total_sats BIGINT NOT NULL DEFAULT 0,
+          settlement_txid VARCHAR(64) NULL,
+          created_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          INDEX idx_cb_listing_id (listing_id),
+          INDEX idx_cb_renter (renter_agent_id),
+          INDEX idx_cb_status (status),
+          INDEX idx_cb_expires_at (expires_at)
+        )
+      `)
+    }
+  },
+  {
+    id: '031_agent_compute_provider_score',
+    description: 'Add compute_provider_score column to agents table',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE agents ADD COLUMN compute_provider_score FLOAT NULL`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

@@ -19,6 +19,9 @@ import { AnvilService } from '../services/AnvilService'
 import { X402Service } from '../services/X402Service'
 import { walletService } from '../services/WalletService'
 import { JobService } from '../services/JobService'
+import { ComputeListingService } from '../services/ComputeListingService'
+import { ComputeBookingService } from '../services/ComputeBookingService'
+import { ComputeSettlementService } from '../services/ComputeSettlementService'
 
 // Initialize services
 const postService = new PostService(db)
@@ -40,6 +43,9 @@ const consensusService = new ConsensusService(db)
 const anvilService = new AnvilService()
 const x402Service = new X402Service(db)
 const jobService = new JobService(db)
+const computeListingService = new ComputeListingService(db)
+const computeBookingService = new ComputeBookingService(db)
+const computeSettlementService = new ComputeSettlementService(db)
 
 // Settlement engine config (stubbed for Phase 1; real BSV signing in Phase 2)
 const settlementConfig: SettlementConfig = {
@@ -3830,6 +3836,145 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
   } catch (error: any) {
     fail(res, error.message, 500)
   }
+})
+
+// ============================================================
+// COMPUTE EXCHANGE ROUTES
+// ============================================================
+
+/** POST /api/compute/listings — create a listing (provider) */
+router.post('/compute/listings', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const { listingType, availabilityMode, slotDurationMinutes, priceSats, x402PriceSats, x402Endpoint, maxConcurrentSlots, specs } = req.body
+
+    if (!['gpu_slot', 'inference_slot'].includes(listingType)) return fail(res, 'listingType must be gpu_slot or inference_slot')
+    if (!['instant', 'scheduled'].includes(availabilityMode ?? 'instant')) return fail(res, 'availabilityMode must be instant or scheduled')
+    if (!slotDurationMinutes || slotDurationMinutes < 1) return fail(res, 'slotDurationMinutes must be >= 1')
+    if (priceSats === undefined || priceSats < 0) return fail(res, 'priceSats must be >= 0')
+
+    const listing = await computeListingService.create({
+      agentId, listingType, availabilityMode: availabilityMode ?? 'instant',
+      slotDurationMinutes: Number(slotDurationMinutes),
+      priceSats: Number(priceSats),
+      x402PriceSats: x402PriceSats ? Number(x402PriceSats) : 0,
+      x402Endpoint: x402Endpoint ?? null,
+      maxConcurrentSlots: maxConcurrentSlots ? Number(maxConcurrentSlots) : 1,
+      specs: specs ?? {},
+    })
+    ok(res, { listing })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** GET /api/compute/listings — search/filter listings */
+router.get('/compute/listings', async (req: Request, res: Response) => {
+  try {
+    const { listingType, availabilityMode, maxPriceSats, agentId, status, limit, offset } = req.query as any
+    const result = await computeListingService.list({
+      listingType, availabilityMode,
+      maxPriceSats: maxPriceSats ? Number(maxPriceSats) : undefined,
+      agentId, status: status ?? 'active',
+      limit: limit ? Number(limit) : 20,
+      offset: offset ? Number(offset) : 0,
+    })
+    ok(res, result)
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** GET /api/compute/listings/:id — listing detail */
+router.get('/compute/listings/:id', async (req: Request, res: Response) => {
+  try {
+    const listing = await computeListingService.getById(req.params.id)
+    if (!listing) return fail(res, 'Listing not found', 404)
+    ok(res, { listing })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** PATCH /api/compute/listings/:id — update/pause/delete (provider only) */
+router.patch('/compute/listings/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const { status, priceSats, x402PriceSats, x402Endpoint, maxConcurrentSlots, specs } = req.body
+    const listing = await computeListingService.update(req.params.id, agentId, {
+      status, priceSats, x402PriceSats, x402Endpoint, maxConcurrentSlots, specs
+    })
+    if (!listing) return fail(res, 'Listing not found or not yours', 404)
+    ok(res, { listing })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** POST /api/compute/listings/:id/book — reserve a slot (renter) */
+router.post('/compute/listings/:id/book', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const renterAgentId = (req as any).agentId
+    const { startsAt } = req.body
+    const { booking, error } = await computeBookingService.book({
+      listingId: req.params.id,
+      renterAgentId,
+      startsAt: startsAt ?? undefined,
+    })
+    if (error) return fail(res, error, 400)
+    ok(res, { booking })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** GET /api/compute/bookings — my bookings (renter or provider) */
+router.get('/compute/bookings', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const agentId = (req as any).agentId
+    const { role, status, limit, offset } = req.query as any
+    const filters: any = { status, limit: limit ? Number(limit) : 20, offset: offset ? Number(offset) : 0 }
+    if (role === 'provider') filters.providerAgentId = agentId
+    else filters.renterAgentId = agentId
+    const result = await computeBookingService.list(filters)
+    ok(res, result)
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** GET /api/compute/bookings/:id — booking detail + x402 stats */
+router.get('/compute/bookings/:id', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const booking = await computeBookingService.getById(req.params.id)
+    if (!booking) return fail(res, 'Booking not found', 404)
+    ok(res, { booking })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** POST /api/compute/bookings/:id/proof — submit delivery proof (provider) */
+router.post('/compute/bookings/:id/proof', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const providerAgentId = (req as any).agentId
+    const { proofTxid } = req.body
+    if (!proofTxid) return fail(res, 'proofTxid is required')
+    const { booking, error } = await computeBookingService.submitProof(req.params.id, providerAgentId, proofTxid)
+    if (error) return fail(res, error, 400)
+    // Auto-settle after proof
+    if (booking?.status === 'completed') {
+      const { payoutSats } = await computeSettlementService.settle(req.params.id)
+      const receipt = await computeSettlementService.getReceipt(req.params.id)
+      return ok(res, { booking: await computeBookingService.getById(req.params.id), receipt, payoutSats })
+    }
+    ok(res, { booking })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** POST /api/compute/bookings/:id/dispute — raise dispute (renter) */
+router.post('/compute/bookings/:id/dispute', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const renterAgentId = (req as any).agentId
+    const { booking, error } = await computeBookingService.dispute(req.params.id, renterAgentId)
+    if (error) return fail(res, error, 400)
+    ok(res, { booking })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
+/** GET /api/compute/bookings/:id/receipt — settlement receipt */
+router.get('/compute/bookings/:id/receipt', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const receipt = await computeSettlementService.getReceipt(req.params.id)
+    if (!receipt) return fail(res, 'Booking not found', 404)
+    ok(res, { receipt })
+  } catch (e: any) { fail(res, e.message, 500) }
 })
 
 export default router

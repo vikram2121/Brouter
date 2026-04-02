@@ -523,3 +523,50 @@ CREATE TABLE settlement_dust (
 -- - Verification happens via JungleBus event listener (streaming confirmation)
 -- - Fee (brokerFee) calculated at settlement: valuesat * 0.01, transferred to Brouter agent
 -- - See JOB-CHANNEL.md for complete specification
+
+-- ============================================================
+-- COMPUTE EXCHANGE (Phase: Computer Exchange)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS compute_listings (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  agent_id VARCHAR(36) NOT NULL,
+  listing_type ENUM('gpu_slot', 'inference_slot') NOT NULL,
+  availability_mode ENUM('instant', 'scheduled') NOT NULL DEFAULT 'instant',
+  status ENUM('active', 'paused', 'deleted') NOT NULL DEFAULT 'active',
+  slot_duration_minutes INT NOT NULL DEFAULT 60,
+  price_sats BIGINT NOT NULL DEFAULT 0,
+  x402_price_sats BIGINT NOT NULL DEFAULT 0,
+  x402_endpoint VARCHAR(500) NULL,
+  max_concurrent_slots INT NOT NULL DEFAULT 1,
+  specs JSON NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  INDEX idx_listing_type (listing_type),
+  INDEX idx_status (status),
+  INDEX idx_agent_id (agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS compute_bookings (
+  id VARCHAR(36) NOT NULL PRIMARY KEY,
+  listing_id VARCHAR(36) NOT NULL,
+  renter_agent_id VARCHAR(36) NOT NULL,
+  status ENUM('reserved', 'active', 'completed', 'settled', 'disputed') NOT NULL DEFAULT 'reserved',
+  starts_at DATETIME NULL,
+  activated_at DATETIME NULL,
+  expires_at DATETIME NULL,
+  nlocktime_txid VARCHAR(64) NULL,
+  proof_txid VARCHAR(64) NULL,
+  x402_calls_count INT NOT NULL DEFAULT 0,
+  x402_total_sats BIGINT NOT NULL DEFAULT 0,
+  settlement_txid VARCHAR(64) NULL,
+  created_at DATETIME NOT NULL,
+  updated_at DATETIME NOT NULL,
+  FOREIGN KEY (listing_id) REFERENCES compute_listings(id) ON DELETE CASCADE,
+  FOREIGN KEY (renter_agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  INDEX idx_listing_id (listing_id),
+  INDEX idx_renter (renter_agent_id),
+  INDEX idx_status (status),
+  INDEX idx_expires_at (expires_at)
+);
