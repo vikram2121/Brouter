@@ -218,12 +218,9 @@ export class ResolutionCron {
     this.running = true
 
     try {
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
-
       // 1a. Auto-lock OPEN markets past their closesAt
       const toAutoLock = await this.db.all(
-        `SELECT id FROM markets WHERE state = 'OPEN' AND closesAt <= ?`,
-        [now]
+        `SELECT id FROM markets WHERE state = 'OPEN' AND closesAt <= NOW()`,
       )
       for (const row of toAutoLock) {
         try {
@@ -236,8 +233,7 @@ export class ResolutionCron {
 
       // 1b. Advance LOCKED markets past their resolvesAt to RESOLVING
       const toAdvance = await this.db.all(
-        `SELECT id FROM markets WHERE state = 'LOCKED' AND resolvesAt <= ?`,
-        [now]
+        `SELECT id FROM markets WHERE state = 'LOCKED' AND resolvesAt <= NOW()`,
       )
       for (const row of toAdvance) {
         try {
@@ -251,9 +247,9 @@ export class ResolutionCron {
       // 2. Resolve RESOLVING markets past their resolvesAt
       const toResolve = await this.db.all(
         `SELECT id, resolution_mechanism FROM markets
-         WHERE state = 'RESOLVING' AND resolvesAt <= ?`,
-        [now]
+         WHERE state = 'RESOLVING' AND resolvesAt <= NOW()`,
       )
+      console.log(`[cron] RESOLVING markets to attempt: ${toResolve.length}`)
       for (const row of toResolve) {
         const result = await this.resolveMarket(row.id)
         if (!result) {
@@ -263,15 +259,14 @@ export class ResolutionCron {
 
       // 2b. Force-void any RESOLVING market stuck for more than 30 minutes
       //     (safety net for markets that slip through normal resolution)
-      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
       const stuckMarkets = await this.db.all(
         `SELECT id FROM markets
          WHERE state = 'RESOLVING'
-           AND resolvesAt <= ?
+           AND resolvesAt <= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
            AND (resolution_mechanism IS NULL OR resolution_mechanism = 'oracle_auto')
            AND (oracleMarketId IS NULL OR oracleMarketId = '')`,
-        [thirtyMinAgo]
       )
+      console.log(`[cron] Force-void candidates: ${stuckMarkets.length}`)
       for (const row of stuckMarkets) {
         try {
           await this.marketService.resolve(row.id, 'void', 'cron')
@@ -294,10 +289,9 @@ export class ResolutionCron {
          WHERE state = 'RESOLVING'
            AND resolution_mechanism = 'consensus'
            AND (
-             (consensus_closes_at IS NOT NULL AND consensus_closes_at <= ?)
-             OR (reveal_phase_ends_at IS NOT NULL AND reveal_phase_ends_at <= ?)
+             (consensus_closes_at IS NOT NULL AND consensus_closes_at <= NOW())
+             OR (reveal_phase_ends_at IS NOT NULL AND reveal_phase_ends_at <= NOW())
            )`,
-        [now, now]
       )
       const alreadyQueued = new Set(toResolve.map((r: any) => r.id))
       for (const row of windowExpired) {
@@ -311,7 +305,7 @@ export class ResolutionCron {
       }
 
       // 4. Auto-expire jobs past their deadline (open/locked → expired, refund poster)
-      await this.expireStaleJobs(now)
+      await this.expireStaleJobs(new Date().toISOString().slice(0, 19).replace('T', ' '))
 
       // 5. Auto-open any PROPOSED markets (seeded but not yet opened)
       await this.openProposedMarkets()
