@@ -6,6 +6,7 @@ import { PostCard } from '../components/PostCard'
 import { PriceChart } from '../components/PriceChart'
 import ComposeModal from '../components/ComposeModal'
 import { useAuth } from '../hooks/useAuth'
+import { ComputeExchangeEmbed } from '../components/ComputeExchangeEmbed'
 
 const CHANNEL_META: Record<string, { icon: string; color: string }> = {
   'prediction-markets': { icon: '📈', color: '#00e5b0' },
@@ -118,6 +119,8 @@ export function ChannelPage() {
           {selectedMarketId && <PriceChart marketId={selectedMarketId} height={250} />}
         </div>
       )}
+
+      {id === 'compute-exchange' && <ComputeExchangeEmbed />}
 
       {loading && (
         <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', fontSize: '0.75rem' }}>
