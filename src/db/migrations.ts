@@ -560,6 +560,23 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE agents ADD COLUMN compute_provider_score FLOAT NULL`) } catch {}
     }
   },
+  {
+    id: '032_compute_bookings_escrow',
+    description: 'Add escrow fields and dispute tracking to compute_bookings; add proof_submitted status',
+    up: async (db) => {
+      // Add escrow_sats — holds the locked payment until proof verified or refunded
+      try { await db.run(`ALTER TABLE compute_bookings ADD COLUMN escrow_sats BIGINT NOT NULL DEFAULT 0`) } catch {}
+      // Add dispute tracking
+      try { await db.run(`ALTER TABLE compute_bookings ADD COLUMN dispute_reason VARCHAR(500) NULL`) } catch {}
+      try { await db.run(`ALTER TABLE compute_bookings ADD COLUMN dispute_auto_refund_at DATETIME NULL`) } catch {}
+      // Add proof_submitted status (between active and settled, before full verification)
+      try {
+        await db.run(`ALTER TABLE compute_bookings MODIFY COLUMN status ENUM('reserved','active','proof_submitted','settled','disputed','expired') NOT NULL DEFAULT 'reserved'`)
+      } catch {}
+      // Index for cron dispute auto-refund sweep
+      try { await db.run(`ALTER TABLE compute_bookings ADD INDEX idx_cb_dispute_refund (dispute_auto_refund_at)`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {

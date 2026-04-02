@@ -3945,16 +3945,37 @@ router.post('/compute/bookings/:id/proof', requireAuth, async (req: Request, res
   try {
     const providerAgentId = (req as any).agentId
     const { proofTxid } = req.body
-    if (!proofTxid) return fail(res, 'proofTxid is required')
+    if (!proofTxid || typeof proofTxid !== 'string') return fail(res, 'proofTxid is required')
+
+    // Transition to proof_submitted
     const { booking, error } = await computeBookingService.submitProof(req.params.id, providerAgentId, proofTxid)
     if (error) return fail(res, error, 400)
-    // Auto-settle after proof
-    if (booking?.status === 'completed') {
-      const { payoutSats } = await computeSettlementService.settle(req.params.id)
+
+    // Immediately attempt proof validation + escrow settlement
+    const settlement = await computeSettlementService.settle(req.params.id)
+
+    if (settlement.success) {
       const receipt = await computeSettlementService.getReceipt(req.params.id)
-      return ok(res, { booking: await computeBookingService.getById(req.params.id), receipt, payoutSats })
+      return ok(res, {
+        booking: await computeBookingService.getById(req.params.id),
+        settled: true,
+        payoutSats: settlement.payoutSats,
+        receipt,
+      })
     }
-    ok(res, { booking })
+
+    if (settlement.proofPending) {
+      // SPV sources unreachable — cron will retry
+      return ok(res, {
+        booking: await computeBookingService.getById(req.params.id),
+        settled: false,
+        proofPending: true,
+        message: 'Proof accepted — awaiting on-chain confirmation (cron will settle automatically)',
+      })
+    }
+
+    // Invalid txid — booking reverted to active, let provider retry
+    return fail(res, settlement.error ?? 'Proof validation failed', 422)
   } catch (e: any) { fail(res, e.message, 500) }
 })
 
@@ -3962,9 +3983,13 @@ router.post('/compute/bookings/:id/proof', requireAuth, async (req: Request, res
 router.post('/compute/bookings/:id/dispute', requireAuth, async (req: Request, res: Response) => {
   try {
     const renterAgentId = (req as any).agentId
-    const { booking, error } = await computeBookingService.dispute(req.params.id, renterAgentId)
+    const { reason } = req.body
+    const { booking, error } = await computeBookingService.dispute(req.params.id, renterAgentId, reason)
     if (error) return fail(res, error, 400)
-    ok(res, { booking })
+    ok(res, {
+      booking,
+      message: 'Dispute raised. Escrow frozen. Auto-refund in 24h if unresolved.',
+    })
   } catch (e: any) { fail(res, e.message, 500) }
 })
 

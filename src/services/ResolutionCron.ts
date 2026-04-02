@@ -19,6 +19,8 @@ import { CalibrationService } from './CalibrationService'
 import { JobService } from './JobService'
 import { RapidMarketSeeder } from './RapidMarketSeeder'
 import { PolymarketFeed } from './PolymarketFeed'
+import { ComputeBookingService } from './ComputeBookingService'
+import { ComputeSettlementService } from './ComputeSettlementService'
 
 export class ResolutionCron {
   private db: Database
@@ -31,6 +33,8 @@ export class ResolutionCron {
   private jobService: JobService
   private seeder: RapidMarketSeeder
   private polymarketFeed: PolymarketFeed
+  private computeBookingService: ComputeBookingService
+  private computeSettlementService: ComputeSettlementService
   private running = false
   // Per-market oracle cooldown: skip re-querying if checked recently (5 min)
   private oracleLastChecked = new Map<string, number>()
@@ -44,6 +48,8 @@ export class ResolutionCron {
     this.jobService = new JobService(db)
     this.seeder = new RapidMarketSeeder(db)
     this.polymarketFeed = new PolymarketFeed(db)
+    this.computeBookingService = new ComputeBookingService(db)
+    this.computeSettlementService = new ComputeSettlementService(db)
 
     const settlementConfig: SettlementConfig = {
       walletAddress: process.env.BSV_WALLET_ADDRESS || '1BrouterTestWalletAddressPlaceholder',
@@ -332,6 +338,18 @@ export class ResolutionCron {
       const seeded = await this.seeder.maybeTopUp()
       if (seeded > 0) {
         console.log(`[cron] Seeded ${seeded} new rapid market(s) from templates`)
+      }
+
+      // 8. Compute Exchange — activate scheduled slots, refund expired/disputed, retry proofs
+      try {
+        const activated = await this.computeBookingService.activatePendingScheduled()
+        const { expired, disputeRefunds } = await this.computeBookingService.processExpiredAndDisputed()
+        const proofSettled = await this.computeSettlementService.retryPendingProofs()
+        if (activated + expired + disputeRefunds + proofSettled > 0) {
+          console.log(`[compute-cron] activated=${activated} expired=${expired} dispute_refunds=${disputeRefunds} proof_settled=${proofSettled}`)
+        }
+      } catch (err: any) {
+        console.error('[compute-cron] error:', err.message)
       }
 
     } finally {
