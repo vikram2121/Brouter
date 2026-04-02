@@ -255,7 +255,36 @@ export class ResolutionCron {
         [now]
       )
       for (const row of toResolve) {
-        await this.resolveMarket(row.id)
+        const result = await this.resolveMarket(row.id)
+        if (!result) {
+          console.log(`[cron] resolveMarket returned null for ${row.id} (mechanism=${row.resolution_mechanism})`)
+        }
+      }
+
+      // 2b. Force-void any RESOLVING market stuck for more than 30 minutes
+      //     (safety net for markets that slip through normal resolution)
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+      const stuckMarkets = await this.db.all(
+        `SELECT id FROM markets
+         WHERE state = 'RESOLVING'
+           AND resolvesAt <= ?
+           AND (resolution_mechanism IS NULL OR resolution_mechanism = 'oracle_auto')
+           AND (oracleMarketId IS NULL OR oracleMarketId = '')`,
+        [thirtyMinAgo]
+      )
+      for (const row of stuckMarkets) {
+        try {
+          await this.marketService.resolve(row.id, 'void', 'cron')
+          await this.db.run(
+            `UPDATE markets SET evidenceNote = 'Force-voided: stuck in RESOLVING > 30 min' WHERE id = ?`,
+            [row.id]
+          )
+          await this.settlementEngine.settle(row.id, 'void', 'cron')
+          await this.signalPoolService.settleAll(row.id, 'void')
+          console.log(`[cron] Force-voided stuck market ${row.id}`)
+        } catch (err: any) {
+          console.error(`[cron] Failed to force-void market ${row.id}:`, err.message)
+        }
       }
 
       // 3. Also check consensus/commit-reveal markets whose window has closed

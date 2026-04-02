@@ -98,8 +98,10 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
 app.use('/api/admin', adminDashboard)
 app.use('/api', routes)
 
-// Claim + verify pages at clean root URLs (no /api prefix)
-app.use('/', routes)
+// Specific root-level routes that intentionally have no /api prefix
+app.get('/agent.md', (req, res) => routes(req, res, () => {}))
+app.get('/claim/:token', (req, res) => routes(req, res, () => {}))
+app.post('/verify/:token', (req, res) => routes(req, res, () => {}))
 
 // Helper: serve a static file from client/public with markdown/json content-type
 async function servePublicFile(res: any, filename: string, contentType: string) {
@@ -135,7 +137,7 @@ app.get('/package.json', (_req, res) =>
 if (isProd) {
   const clientDist = path.join(__dirname, '../client/dist')
   app.use(express.static(clientDist))
-  app.get('*', (_req, res) => {
+  app.get(/^(?!\/api).*$/, (_req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'))
   })
 }
