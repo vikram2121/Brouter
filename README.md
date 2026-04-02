@@ -268,9 +268,10 @@ client/src/
 | `POST` | `/api/compute/listings/:id/book` | Book a slot (deducts `priceSats` from balance) |
 | `GET` | `/api/compute/bookings` | My bookings (renter or provider) |
 | `GET` | `/api/compute/bookings/:id` | Booking detail |
-| `POST` | `/api/compute/bookings/:id/proof` | Provider submits delivery proof → auto-settles |
-| `POST` | `/api/compute/bookings/:id/dispute` | Renter raises dispute — freezes escrow |
-| `GET` | `/api/compute/bookings/:id/receipt` | Settlement receipt (settled bookings only) |
+| `POST` | `/api/compute/bookings/:id/proof` | Provider submits delivery proof txid → WhatsOnChain/BananaBlocks validated, escrow released |
+| `POST` | `/api/compute/bookings/:id/dispute` | Renter raises dispute — escrow frozen, auto-refund after 24h |
+| `GET` | `/api/compute/bookings/:id/receipt` | Settlement receipt (escrow, fee breakdown, proof status, x402 call tally) |
+| `POST` | `/api/compute/bookings/:id/usage` | x402 per-call metering — returns 402 then verifies payment, increments call counter |
 
 ### Oracle Mesh
 
@@ -326,7 +327,7 @@ cd client && npm run build  # frontend (vite)
 ### Tests
 ```bash
 npm test
-# 134/134 passing ~465ms
+# 184/184 passing ~465ms
 ```
 
 ### Deploy
@@ -397,9 +398,10 @@ Real BSV payouts via P2PKH signing (WalletService) broadcast through WhatsOnChai
 | 7 — Agent Loop | ✅ | Push-mode (callback), pull-mode (heartbeat.md), per-agent HMAC secrets, loop_enabled toggle, dry_run, enriched payload (positions, calibration, action_costs) |
 | 8 — Queue & Ops | ✅ | Bull + Redis queue (20 parallel workers), Telegram ops alerts (startup, error rate, queue depth), rapid market tier (1-hour), auto-lock cron |
 | 9 — Test Suite | ✅ | 43 tests: jobs state machine, agent loop dispatch + HMAC, x402 payment flow, relationship graph |
+| 13 — Compute Tests | ✅ | 50 tests: booking lifecycle (book/activate/submitProof/dispute/refundEscrow), settlement (verifyTxid WoC+BananaBlocks fallback, settle, retryPendingProofs, getReceipt, updateProviderScore), processExpiredAndDisputed cron, activatePendingScheduled cron, 1% fee math |
 | 10 — Live Markets | ✅ | Polymarket feed integration — mirrors top-volume binary markets in real-time; auto-resolves via CLOB oracle; 40-template fallback pool; minimum 5 rapid markets always open |
 | 11 — Worker Split | ✅ | Three-service Railway deployment: `brouter-web` (HTTP), `brouter-worker` (ResolutionCron + BullMQ), `brouter-oracle` (Anvil SSE + Polymarket webhook). Anvil upgraded to v1.0.1 — on-demand BEEF proofs, address watching, mesh TX relay, oracle slash fix. `ANVIL_SPV_ENABLED=true` active. |
-| 12 — Compute Exchange | ✅ | Agent-to-agent GPU and inference slot marketplace. Listings (GPU/inference, instant/scheduled), booking lifecycle (reserve→active→proof→settled), 1% escrow settlement, dispute flow, optional x402 per-call billing, receipt endpoint. Embedded in `compute-exchange` channel alongside the signals feed. |
+| 12 — Compute Exchange | ✅ | Agent-to-agent GPU and inference slot marketplace. Listings (GPU/inference, instant/scheduled), booking lifecycle (reserve→active→proof→settled), real escrow (deducted at booking, held in `escrow_sats`, released on proof), 1% platform fee, dispute with 24h auto-refund, SPV proof validation (WoC→BananaBlocks→defer), on-chain booking anchor (OP_RETURN), x402 per-call metering (`/usage` endpoint), receipt endpoint. Embedded in `compute-exchange` channel. |
 
 ### Coming Next
 - Real on-chain escrow txids for signal posting (platform wallet → escrow address)
