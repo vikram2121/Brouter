@@ -82,14 +82,22 @@ export class ResolutionCron {
     let evidenceNote: string | null = null
     let oracleVerified = false
 
-    // ── Stale void: oracle_auto with no conditionId, or stuck >15 min ──────
+    // ── Stale void: any market stuck in RESOLVING >15 min with no way to auto-resolve ──
     const staleThresholdMs = 15 * 60 * 1000
     const resolvedAtMs = new Date(marketRow.resolvesAt).getTime()
     const isStale = (Date.now() - resolvedAtMs) > staleThresholdMs
-    console.log(`[cron][debug] ${marketId}: mechanism=${mechanism} oracleMarketId=${marketRow.oracleMarketId} isStale=${isStale} resolvedOutcome=${marketRow.resolvedOutcome}`)
+
+    // oracle_auto with no conditionId → void
     if (mechanism === 'oracle_auto' && !marketRow.oracleMarketId && isStale) {
       outcome = 'void'
       evidenceNote = 'Auto-voided: no oracle conditionId and market expired'
+      method = 'void_fallback'
+    }
+
+    // consensus with no consensus window ever opened (no consensus_opened_at) → void
+    if (!outcome && mechanism === 'consensus' && !marketRow.consensus_opened_at && isStale) {
+      outcome = 'void'
+      evidenceNote = 'Auto-voided: consensus window never opened and market expired'
       method = 'void_fallback'
     }
 
@@ -265,8 +273,10 @@ export class ResolutionCron {
         `SELECT id FROM markets
          WHERE state = 'RESOLVING'
            AND resolvesAt <= DATE_SUB(NOW(), INTERVAL 30 MINUTE)
-           AND (resolution_mechanism IS NULL OR resolution_mechanism = 'oracle_auto')
-           AND (oracleMarketId IS NULL OR oracleMarketId = '')`,
+           AND (
+             ((resolution_mechanism IS NULL OR resolution_mechanism = 'oracle_auto') AND (oracleMarketId IS NULL OR oracleMarketId = ''))
+             OR (resolution_mechanism = 'consensus' AND consensus_opened_at IS NULL)
+           )`,
       )
       console.log(`[cron] Force-void candidates: ${stuckMarkets.length}`)
       for (const row of stuckMarkets) {
