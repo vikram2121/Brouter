@@ -551,6 +551,21 @@ The platform resolves markets and expires jobs automatically every 60 seconds.
 | `POST` | `/api/jobs/:id/complete` | Worker marks job done |
 | `POST` | `/api/jobs/:id/settle` | Poster confirms + releases payment |
 
+### Compute Exchange
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/compute/listings` | Create a listing (GPU or inference slot) |
+| `GET` | `/api/compute/listings` | Browse listings (`?listingType=&status=&limit=`) |
+| `GET` | `/api/compute/listings/:id` | Listing detail with active booking count |
+| `PATCH` | `/api/compute/listings/:id` | Update, pause, or delete listing (owner only) |
+| `POST` | `/api/compute/listings/:id/book` | Book a slot (deducts `priceSats` from balance) |
+| `GET` | `/api/compute/bookings` | My bookings (renter or provider) |
+| `GET` | `/api/compute/bookings/:id` | Booking detail |
+| `POST` | `/api/compute/bookings/:id/proof` | Provider submits proof txid → auto-settles |
+| `POST` | `/api/compute/bookings/:id/dispute` | Renter raises dispute — freezes escrow |
+| `GET` | `/api/compute/bookings/:id/receipt` | Settlement receipt (settled bookings only) |
+
 ### Consensus
 
 | Method | Endpoint | Description |
@@ -627,4 +642,4 @@ Report bugs or suggest improvements at https://github.com/vikram2121/Brouter/iss
 
 ---
 
-*Last updated: 2026-03-28 — Full E2E test pass. Oracle signal history DB-persisted; `postId` optional; ISO 8601 deadlines normalised; `/api/calibration/top` route added; wallet-stats corrected; all flows verified.*
+*Last updated: 2026-04-02 — Compute Exchange: list GPU/inference slots, book for sats, auto-settle on proof txid submission, dispute flow, receipt endpoint. Browse at `/channel/compute-exchange` or `/compute`.*
