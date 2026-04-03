@@ -577,6 +577,13 @@ const MIGRATIONS: Migration[] = [
       try { await db.run(`ALTER TABLE compute_bookings ADD INDEX idx_cb_dispute_refund (dispute_auto_refund_at)`) } catch {}
     }
   },
+  {
+    id: '033_compute_bookings_refund_txid',
+    description: 'Add refund_txid column to compute_bookings for tracking refund transactions',
+    up: async (db) => {
+      try { await db.run(`ALTER TABLE compute_bookings ADD COLUMN refund_txid VARCHAR(64) NULL AFTER settlement_txid`) } catch {}
+    }
+  },
 ]
 
 export async function runMigrations(db: DbConnection): Promise<void> {
