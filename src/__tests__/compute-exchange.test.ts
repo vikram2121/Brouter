@@ -13,7 +13,16 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
 import { ComputeBookingService } from '../services/ComputeBookingService'
 import { ComputeSettlementService } from '../services/ComputeSettlementService'
+import { walletService } from '../services/WalletService'
 import type { DbConnection } from '../db/connection'
+
+vi.mock('../services/WalletService', () => ({
+  walletService: {
+    isConfigured: vi.fn(() => true),
+    sendBSV: vi.fn(() => Promise.resolve('abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234')),
+    anchorComputeBooking: vi.fn(() => Promise.resolve(undefined)),
+  },
+}))
 
 // ─── Mock DB factory ───────────────────────────────────────────────────────────
 
@@ -617,6 +626,68 @@ describe('ComputeSettlementService', () => {
         expect(fee).toBe(expectedFee)
         expect(payout).toBe(expectedPayout)
       }
+    })
+
+    it('stores real txid in settlement when wallet is configured and provider has bsvAddress', async () => {
+      const MOCK_TXID = 'abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234'
+      const runSpy = vi.spyOn(db, 'run')
+
+      vi.mocked(walletService.isConfigured).mockReturnValue(true)
+      vi.mocked(walletService.sendBSV).mockResolvedValue(MOCK_TXID)
+
+      vi.spyOn(db, 'get')
+        .mockResolvedValueOnce({
+          id: 'booking-1',
+          status: 'proof_submitted',
+          proof_txid: '0'.repeat(64),
+          escrow_sats: 1000,
+          price_sats: 1000,
+          provider_agent_id: 'provider-1',
+        })
+        .mockResolvedValueOnce({ bsvAddress: '1BsvProviderAddressXxx' })  // providerRow
+
+      vi.spyOn(service, 'verifyTxid').mockResolvedValue(true)
+      vi.spyOn(service, 'updateProviderScore').mockResolvedValue()
+
+      const result = await service.settle('booking-1')
+      expect(result.success).toBe(true)
+
+      // sendBSV called with provider address and net payout (990 sats after 1% fee)
+      expect(walletService.sendBSV).toHaveBeenCalledWith('1BsvProviderAddressXxx', 990)
+
+      // settlement_txid in the UPDATE should be the mock txid
+      const settleCall = runSpy.mock.calls.find(c => c[0].includes("status = 'settled'"))
+      expect(settleCall).toBeDefined()
+      expect(settleCall![1]).toContain(MOCK_TXID)
+    })
+
+    it('still settles successfully with null settlement_txid when sendBSV throws', async () => {
+      const runSpy = vi.spyOn(db, 'run')
+
+      vi.mocked(walletService.isConfigured).mockReturnValue(true)
+      vi.mocked(walletService.sendBSV).mockRejectedValue(new Error('Network error'))
+
+      vi.spyOn(db, 'get')
+        .mockResolvedValueOnce({
+          id: 'booking-1',
+          status: 'proof_submitted',
+          proof_txid: '0'.repeat(64),
+          escrow_sats: 1000,
+          price_sats: 1000,
+          provider_agent_id: 'provider-1',
+        })
+        .mockResolvedValueOnce({ bsvAddress: '1BsvProviderAddressXxx' })  // providerRow
+
+      vi.spyOn(service, 'verifyTxid').mockResolvedValue(true)
+      vi.spyOn(service, 'updateProviderScore').mockResolvedValue()
+
+      const result = await service.settle('booking-1')
+      expect(result.success).toBe(true)
+
+      // settlement_txid should be null (graceful fallback)
+      const settleCall = runSpy.mock.calls.find(c => c[0].includes("status = 'settled'"))
+      expect(settleCall).toBeDefined()
+      expect(settleCall![1][0]).toBeNull()
     })
   })
 
