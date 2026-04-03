@@ -328,10 +328,12 @@ describe('ComputeBookingService', () => {
 
     it('credits renter and marks booking expired', async () => {
       const runSpy = vi.spyOn(db, 'run')
-      vi.spyOn(db, 'get').mockResolvedValue({
-        ...mockBookingRow({ escrow_sats: 1000, status: 'active' }),
-        provider_agent_id: 'provider-1',
-      })
+      vi.spyOn(db, 'get')
+        .mockResolvedValueOnce({
+          ...mockBookingRow({ escrow_sats: 1000, status: 'active' }),
+          provider_agent_id: 'provider-1',
+        })
+        .mockResolvedValueOnce(null) // no bsvAddress — skips BSV send
 
       const result = await service.refundEscrow('booking-1', 'expired')
       expect(result).toBe(true)
@@ -347,6 +349,53 @@ describe('ComputeBookingService', () => {
 
       // escrow_sats = 0 is hardcoded in the SQL (not a param) — verify it's in the query
       expect(expireCall![0]).toContain('escrow_sats = 0')
+    })
+
+    it('refundEscrow() sends real BSV to renter when bsvAddress set and wallet configured', async () => {
+      const mockRefundTxid = 'feed0000feed0000feed0000feed0000feed0000feed0000feed0000feed0000'
+      vi.mocked(walletService.sendBSV).mockResolvedValueOnce(mockRefundTxid)
+      vi.mocked(walletService.isConfigured).mockReturnValue(true)
+
+      const runSpy = vi.spyOn(db, 'run').mockResolvedValue(undefined)
+      vi.spyOn(db, 'get')
+        .mockResolvedValueOnce({
+          ...mockBookingRow({ escrow_sats: 500, status: 'active' }),
+          provider_agent_id: 'provider-1',
+        })
+        .mockResolvedValueOnce({ bsvAddress: '1RenterBSVAddressHere' })
+
+      const result = await service.refundEscrow('booking-1', 'expired')
+      expect(result).toBe(true)
+      expect(walletService.sendBSV).toHaveBeenCalledWith('1RenterBSVAddressHere', 500)
+
+      // refund_txid should be stored in the compute_bookings UPDATE
+      const updateCall = runSpy.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('refund_txid')
+      )
+      expect(updateCall).toBeDefined()
+      expect(updateCall![1]).toContain(mockRefundTxid)
+    })
+
+    it('refundEscrow() still refunds if sendBSV throws (graceful fallback)', async () => {
+      vi.mocked(walletService.sendBSV).mockRejectedValueOnce(new Error('no UTXOs'))
+      vi.mocked(walletService.isConfigured).mockReturnValue(true)
+
+      const runSpy = vi.spyOn(db, 'run').mockResolvedValue(undefined)
+      vi.spyOn(db, 'get')
+        .mockResolvedValueOnce({
+          ...mockBookingRow({ escrow_sats: 500, status: 'active' }),
+          provider_agent_id: 'provider-1',
+        })
+        .mockResolvedValueOnce({ bsvAddress: '1RenterBSVAddressHere' })
+
+      const result = await service.refundEscrow('booking-1', 'expired')
+      expect(result).toBe(true)
+
+      const updateCall = runSpy.mock.calls.find(
+        (c: any[]) => typeof c[0] === 'string' && c[0].includes('refund_txid')
+      )
+      expect(updateCall).toBeDefined()
+      expect(updateCall![1]).toContain(null)
     })
   })
 
