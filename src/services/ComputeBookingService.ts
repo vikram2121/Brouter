@@ -248,7 +248,23 @@ export class ComputeBookingService {
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
-    // Refund escrow to renter
+    // 1. Fetch renter's BSV address for real on-chain refund
+    const renterRow = await this.db.get<{ bsvAddress: string | null }>(
+      'SELECT bsvAddress FROM agents WHERE id = ?',
+      [row.renter_agent_id]
+    )
+
+    // 2. Attempt real BSV refund
+    let refundTxid: string | null = null
+    if (renterRow?.bsvAddress && walletService.isConfigured()) {
+      try {
+        refundTxid = await walletService.sendBSV(renterRow.bsvAddress, row.escrow_sats)
+      } catch (err) {
+        console.error('[ComputeBooking] BSV refund failed, crediting balance_sats only:', err)
+      }
+    }
+
+    // 3. Credit balance_sats and mark expired
     await this.db.run(
       'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
       [row.escrow_sats, row.renter_agent_id]
@@ -256,9 +272,9 @@ export class ComputeBookingService {
 
     await this.db.run(
       `UPDATE compute_bookings
-       SET status = 'expired', escrow_sats = 0, updated_at = ?
+       SET status = 'expired', escrow_sats = 0, refund_txid = ?, updated_at = ?
        WHERE id = ?`,
-      [now, bookingId]
+      [refundTxid, now, bookingId]
     )
 
     console.log(`[compute] Refunded ${row.escrow_sats} sats to ${row.renter_agent_id} — booking ${bookingId} (${reason})`)
