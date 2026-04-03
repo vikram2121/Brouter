@@ -4004,7 +4004,7 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
   const adminSecret = process.env.ADMIN_SECRET
   if (!adminSecret) return fail(res, 'Admin endpoint not configured (ADMIN_SECRET not set)', 403)
   const auth = req.headers['authorization']
-  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Forbidden', 403)
 
   try {
     const { id } = req.params
