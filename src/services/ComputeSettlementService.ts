@@ -10,6 +10,7 @@
  */
 
 import { DbConnection } from '../db/connection'
+import { walletService } from './WalletService'
 
 const PLATFORM_FEE_BPS = 100 // 1%
 const WOC_BASE = 'https://api.whatsonchain.com/v1/bsv/main'
@@ -69,16 +70,32 @@ export class ComputeSettlementService {
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
-    // Credit provider
+    // 1. Fetch provider's BSV address for real on-chain payout
+    const providerRow = await this.db.get<{ bsvAddress: string | null }>(
+      `SELECT bsvAddress FROM agents WHERE id = ?`,
+      [booking.provider_agent_id]
+    )
+
+    // 2. Attempt real BSV payout — falls back to balance_sats-only if wallet not configured
+    let settlementTxid: string | null = null
+    if (providerRow?.bsvAddress && walletService.isConfigured()) {
+      try {
+        settlementTxid = await walletService.sendBSV(providerRow.bsvAddress, payoutSats)
+      } catch (err) {
+        console.error('[ComputeSettlement] BSV payout failed, crediting balance_sats only:', err)
+      }
+    }
+
+    // 3. Credit provider balance_sats (always — on-chain payout supplements, not replaces, platform ledger)
     await this.db.run(
       'UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ?, updated_at = ? WHERE id = ?',
       [payoutSats, payoutSats, now, booking.provider_agent_id]
     )
 
-    // Clear escrow, mark settled
+    // 4. Mark settled with real txid if payout succeeded
     await this.db.run(
-      `UPDATE compute_bookings SET status = 'settled', escrow_sats = 0, updated_at = ? WHERE id = ?`,
-      [now, bookingId]
+      `UPDATE compute_bookings SET status = 'settled', escrow_sats = 0, settlement_txid = ?, updated_at = ? WHERE id = ?`,
+      [settlementTxid, now, bookingId]
     )
 
     // Update provider score
