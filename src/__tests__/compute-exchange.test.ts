@@ -446,6 +446,8 @@ describe('ComputeSettlementService', () => {
   // ── verifyTxid() ───────────────────────────────────────────────────────────
 
   describe('verifyTxid()', () => {
+    afterEach(() => { vi.unstubAllGlobals() })
+
     it('returns false immediately for non-hex txid', async () => {
       const result = await service.verifyTxid('not-a-txid')
       expect(result).toBe(false)
@@ -471,8 +473,6 @@ describe('ComputeSettlementService', () => {
 
       const result = await service.verifyTxid(validTxid)
       expect(result).toBe(true)
-
-      vi.unstubAllGlobals()
     })
 
     it('returns false when WoC returns 404 (txid not found)', async () => {
@@ -484,8 +484,6 @@ describe('ComputeSettlementService', () => {
 
       const result = await service.verifyTxid(validTxid)
       expect(result).toBe(false)
-
-      vi.unstubAllGlobals()
     })
 
     it('falls back to BananaBlocks when WoC throws', async () => {
@@ -504,8 +502,6 @@ describe('ComputeSettlementService', () => {
       const result = await service.verifyTxid(validTxid)
       expect(result).toBe(true)
       expect(callCount).toBe(2) // WoC failed, BananaBlocks called
-
-      vi.unstubAllGlobals()
     })
 
     it('returns null when both SPV sources are unreachable', async () => {
@@ -514,8 +510,6 @@ describe('ComputeSettlementService', () => {
 
       const result = await service.verifyTxid(validTxid)
       expect(result).toBeNull()
-
-      vi.unstubAllGlobals()
     })
   })
 
