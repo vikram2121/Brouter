@@ -3993,6 +3993,98 @@ router.post('/compute/bookings/:id/dispute', requireAuth, async (req: Request, r
   } catch (e: any) { fail(res, e.message, 500) }
 })
 
+/**
+ * POST /api/admin/compute/bookings/:id/adjudicate
+ * Admin-only: resolve a disputed compute booking in favour of the provider or the renter.
+ * Protected by ADMIN_SECRET Bearer token.
+ *
+ * Body: { decision: 'provider' | 'renter', reason?: string }
+ */
+router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured (ADMIN_SECRET not set)', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const { id } = req.params
+    const { decision, reason } = req.body as { decision: 'provider' | 'renter'; reason?: string }
+
+    if (!decision || !['provider', 'renter'].includes(decision)) {
+      return fail(res, 'decision must be "provider" or "renter"', 400)
+    }
+
+    const booking = await db.get<any>(
+      `SELECT cb.*, cl.agent_id as provider_agent_id
+       FROM compute_bookings cb
+       JOIN compute_listings cl ON cl.id = cb.listing_id
+       WHERE cb.id = ?`,
+      [id]
+    )
+    if (!booking) return fail(res, 'Booking not found', 404)
+    if (booking.status !== 'disputed') {
+      return fail(res, `Cannot adjudicate booking in status: ${booking.status}`, 400)
+    }
+
+    if (decision === 'provider') {
+      const fee = Math.floor(booking.escrow_sats * 0.01)
+      const netPayout = booking.escrow_sats - fee
+
+      const providerRow = await db.get<{ bsvAddress: string | null }>(
+        'SELECT bsvAddress FROM agents WHERE id = ?',
+        [booking.provider_agent_id]
+      )
+
+      let settlementTxid: string | null = null
+      if (providerRow?.bsvAddress && walletService.isConfigured()) {
+        try {
+          settlementTxid = await walletService.sendBSV(providerRow.bsvAddress, netPayout)
+        } catch (err) {
+          console.error('[adjudicate] BSV payout to provider failed:', err)
+        }
+      }
+
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+      await db.run(
+        'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
+        [netPayout, booking.provider_agent_id]
+      )
+      await db.run(
+        'UPDATE compute_bookings SET status = ?, escrow_sats = 0, settlement_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
+        ['settled', settlementTxid, `[admin: provider] ${reason ?? ''}`.trim(), now, id]
+      )
+      await computeSettlementService.updateProviderScore(booking.provider_agent_id)
+      return ok(res, { decision: 'provider', settlementTxid })
+    }
+
+    // decision === 'renter'
+    const renterRow = await db.get<{ bsvAddress: string | null }>(
+      'SELECT bsvAddress FROM agents WHERE id = ?',
+      [booking.renter_agent_id]
+    )
+
+    let refundTxid: string | null = null
+    if (renterRow?.bsvAddress && walletService.isConfigured()) {
+      try {
+        refundTxid = await walletService.sendBSV(renterRow.bsvAddress, booking.escrow_sats)
+      } catch (err) {
+        console.error('[adjudicate] BSV refund to renter failed:', err)
+      }
+    }
+
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
+    await db.run(
+      'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
+      [booking.escrow_sats, booking.renter_agent_id]
+    )
+    await db.run(
+      'UPDATE compute_bookings SET status = ?, escrow_sats = 0, refund_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
+      ['expired', refundTxid, `[admin: renter] ${reason ?? ''}`.trim(), now, id]
+    )
+    return ok(res, { decision: 'renter', refundTxid })
+  } catch (e: any) { fail(res, e.message, 500) }
+})
+
 /** GET /api/compute/bookings/:id/receipt — settlement receipt */
 router.get('/compute/bookings/:id/receipt', requireAuth, async (req: Request, res: Response) => {
   try {
