@@ -196,6 +196,13 @@ function ListingCard({ listing, onBook }: { listing: ComputeListing; onBook: (l:
           </>
         )}
         <span>Duration: <span style={{ color: 'var(--text)' }}>{listing.slotDurationMinutes} min</span></span>
+        {listing.x402Endpoint && (
+          <span>Payee: <span style={{ color: 'var(--text)' }} title={listing.x402Endpoint}>
+            {listing.x402Endpoint.length > 20
+              ? `${listing.x402Endpoint.slice(0, 16)}...${listing.x402Endpoint.slice(-4)}`
+              : listing.x402Endpoint}
+          </span></span>
+        )}
       </div>
 
       {/* Pricing */}
@@ -432,8 +439,11 @@ function CreateListingModal({ onClose, onCreate }: { onClose: () => void; onCrea
               <input type="number" value={form.x402PriceSats} onChange={e => setForm(f => ({ ...f, x402PriceSats: Number(e.target.value) }))} style={inputStyle} min={0} />
             </div>
             <div>
-              <label style={labelStyle}>x402 Endpoint (optional)</label>
-              <input type="text" placeholder="https://..." value={form.x402Endpoint} onChange={e => setForm(f => ({ ...f, x402Endpoint: e.target.value }))} style={inputStyle} />
+              <label style={labelStyle}>x402 Payee (BSV locking script)</label>
+              <input type="text" placeholder="76a914...88ac" value={form.x402Endpoint} onChange={e => setForm(f => ({ ...f, x402Endpoint: e.target.value }))} style={inputStyle} />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', marginTop: '0.25rem', display: 'block' }}>
+                P2PKH locking script of your BSV address. Convert with: bsv.Address.fromString(addr).toTxOutScript().toHex()
+              </span>
             </div>
           </div>
 
