@@ -86,11 +86,13 @@ export class ComputeSettlementService {
       }
     }
 
-    // 3. Credit provider balance_sats (always — on-chain payout supplements, not replaces, platform ledger)
-    await this.db.run(
-      'UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ?, updated_at = ? WHERE id = ?',
-      [payoutSats, payoutSats, now, booking.provider_agent_id]
-    )
+    // 3. Credit balance_sats only if on-chain send did not happen
+    if (!settlementTxid) {
+      await this.db.run(
+        'UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ?, updated_at = ? WHERE id = ?',
+        [payoutSats, payoutSats, now, booking.provider_agent_id]
+      )
+    }
 
     // 4. Mark settled with real txid if payout succeeded
     await this.db.run(

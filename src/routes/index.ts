@@ -4045,10 +4045,12 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
       }
 
       const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
-      await db.run(
-        'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
-        [netPayout, booking.provider_agent_id]
-      )
+      if (!settlementTxid) {
+        await db.run(
+          'UPDATE agents SET balance_sats = balance_sats + ?, sats_earned = sats_earned + ? WHERE id = ?',
+          [netPayout, netPayout, booking.provider_agent_id]
+        )
+      }
       await db.run(
         'UPDATE compute_bookings SET status = ?, escrow_sats = 0, settlement_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
         ['settled', settlementTxid, `[admin: provider] ${reason ?? ''}`.trim(), now, id]
@@ -4073,10 +4075,12 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
     }
 
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
-    await db.run(
-      'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
-      [booking.escrow_sats, booking.renter_agent_id]
-    )
+    if (!refundTxid) {
+      await db.run(
+        'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
+        [booking.escrow_sats, booking.renter_agent_id]
+      )
+    }
     await db.run(
       'UPDATE compute_bookings SET status = ?, escrow_sats = 0, refund_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
       ['expired', refundTxid, `[admin: renter] ${reason ?? ''}`.trim(), now, id]

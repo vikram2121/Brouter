@@ -264,11 +264,13 @@ export class ComputeBookingService {
       }
     }
 
-    // 3. Credit balance_sats and mark expired
-    await this.db.run(
-      'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
-      [row.escrow_sats, row.renter_agent_id]
-    )
+    // 3. Credit balance_sats only if on-chain refund did not happen
+    if (!refundTxid) {
+      await this.db.run(
+        'UPDATE agents SET balance_sats = balance_sats + ? WHERE id = ?',
+        [row.escrow_sats, row.renter_agent_id]
+      )
+    }
 
     await this.db.run(
       `UPDATE compute_bookings
