@@ -3320,6 +3320,33 @@ router.get('/admin/stats', adminLimiter, async (req: Request, res: Response) => 
 })
 
 /**
+ * POST /api/admin/bulk-update-agents
+ * Bulk update callback_url for a list of agent IDs. Protected by ADMIN_SECRET.
+ */
+router.post('/admin/bulk-update-agents', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const { agentIds, callbackUrl } = req.body
+    if (!Array.isArray(agentIds) || !callbackUrl) return fail(res, 'agentIds (array) and callbackUrl required', 400)
+    if (!callbackUrl.startsWith('https://') && !callbackUrl.startsWith('http://')) return fail(res, 'Invalid callbackUrl', 400)
+
+    const db = (agentService as any).db
+    const updated: string[] = []
+    for (const id of agentIds) {
+      await db.run('UPDATE agents SET callback_url = ? WHERE id = ?', [callbackUrl, id])
+      updated.push(id)
+    }
+    ok(res, { updated: updated.length, callbackUrl })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * POST /api/admin/issue-token
  * Issue a fresh 90-day JWT for any agent by handle or id.
  * Protected by ADMIN_SECRET.
