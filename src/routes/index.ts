@@ -3748,7 +3748,7 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           provider_id: cl.provider_id,
           listing_type: cl.listing_type,
           price_sats: cl.price_sats,
-          specs: cl.specs ? JSON.parse(cl.specs) : null,
+          specs: cl.specs ? (typeof cl.specs === 'string' ? JSON.parse(cl.specs) : cl.specs) : null,
           posted_at: cl.created_at,
         }))
 
