@@ -71,19 +71,26 @@ export class ComputeSettlementService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
     // 1. Fetch provider's BSV address for real on-chain payout
-    const providerRow = await this.db.get<{ bsvAddress: string | null }>(
+    const providerRow = await this.db.get(
       `SELECT bsvAddress FROM agents WHERE id = ?`,
       [booking.provider_agent_id]
     )
 
     // 2. Attempt real BSV payout — falls back to balance_sats-only if wallet not configured
     let settlementTxid: string | null = null
+    let payoutReason = 'unknown'
     if (providerRow?.bsvAddress && walletService.isConfigured()) {
       try {
         settlementTxid = await walletService.sendBSV(providerRow.bsvAddress, payoutSats)
+        payoutReason = 'real_bsv_sent'
       } catch (err) {
+        payoutReason = 'bsv_send_failed'
         console.error('[ComputeSettlement] BSV payout failed, crediting balance_sats only:', err)
       }
+    } else if (!providerRow?.bsvAddress) {
+      payoutReason = 'no_bsv_address'
+    } else if (!walletService.isConfigured()) {
+      payoutReason = 'wallet_not_configured'
     }
 
     // 3. Credit balance_sats only if on-chain send did not happen
@@ -103,7 +110,7 @@ export class ComputeSettlementService {
     // Update provider score
     await this.updateProviderScore(booking.provider_agent_id)
 
-    console.log(`[compute-settle] Booking ${bookingId} settled — provider +${payoutSats} sats (fee ${feeSats})`)
+    console.log(`[compute-settle] Booking ${bookingId} settled — provider +${payoutSats} sats (fee ${feeSats}) [${payoutReason}${settlementTxid ? ': ' + settlementTxid : ''}]`)
     return { success: true, payoutSats }
   }
 

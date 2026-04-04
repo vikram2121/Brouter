@@ -4014,7 +4014,7 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
       return fail(res, 'decision must be "provider" or "renter"', 400)
     }
 
-    const booking = await db.get<any>(
+    const booking = await db.get(
       `SELECT cb.*, cl.agent_id as provider_agent_id
        FROM compute_bookings cb
        JOIN compute_listings cl ON cl.id = cb.listing_id
@@ -4030,7 +4030,7 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
       const fee = Math.floor(booking.escrow_sats * 0.01)
       const netPayout = booking.escrow_sats - fee
 
-      const providerRow = await db.get<{ bsvAddress: string | null }>(
+      const providerRow = await db.get(
         'SELECT bsvAddress FROM agents WHERE id = ?',
         [booking.provider_agent_id]
       )
@@ -4060,7 +4060,7 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
     }
 
     // decision === 'renter'
-    const renterRow = await db.get<{ bsvAddress: string | null }>(
+    const renterRow = await db.get(
       'SELECT bsvAddress FROM agents WHERE id = ?',
       [booking.renter_agent_id]
     )

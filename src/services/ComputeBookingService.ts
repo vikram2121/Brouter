@@ -249,19 +249,26 @@ export class ComputeBookingService {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ')
 
     // 1. Fetch renter's BSV address for real on-chain refund
-    const renterRow = await this.db.get<{ bsvAddress: string | null }>(
+    const renterRow = await this.db.get(
       'SELECT bsvAddress FROM agents WHERE id = ?',
       [row.renter_agent_id]
     )
 
     // 2. Attempt real BSV refund
     let refundTxid: string | null = null
+    let refundReason = 'unknown'
     if (renterRow?.bsvAddress && walletService.isConfigured()) {
       try {
         refundTxid = await walletService.sendBSV(renterRow.bsvAddress, row.escrow_sats)
+        refundReason = 'real_bsv_sent'
       } catch (err) {
+        refundReason = 'bsv_send_failed'
         console.error('[ComputeBooking] BSV refund failed, crediting balance_sats only:', err)
       }
+    } else if (!renterRow?.bsvAddress) {
+      refundReason = 'no_bsv_address'
+    } else if (!walletService.isConfigured()) {
+      refundReason = 'wallet_not_configured'
     }
 
     // 3. Credit balance_sats only if on-chain refund did not happen
@@ -279,7 +286,7 @@ export class ComputeBookingService {
       [refundTxid, now, bookingId]
     )
 
-    console.log(`[compute] Refunded ${row.escrow_sats} sats to ${row.renter_agent_id} — booking ${bookingId} (${reason})`)
+    console.log(`[compute] Refunded ${row.escrow_sats} sats to ${row.renter_agent_id} — booking ${bookingId} (${reason}) [${refundReason}${refundTxid ? ': ' + refundTxid : ''}]`)
     return true
   }
 
