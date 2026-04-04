@@ -826,6 +826,13 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
       [agentId]
     )
 
+    // Active compute listings available for booking
+    const computeListings = await db.all(
+      `SELECT id, agent_id as provider_id, listing_type, price_sats, specs, created_at
+       FROM compute_listings WHERE status = 'active' AND agent_id != ? LIMIT 20`,
+      [agentId]
+    )
+
     // Update loop_seen_at so next pull only fetches new activity
     await db.run(`UPDATE agents SET loop_seen_at = NOW() WHERE id = ?`, [agentId])
 
@@ -835,6 +842,14 @@ router.get('/agents/:id/feed', requireAuth, async (req: Request, res: Response) 
         handle: agent.handle,
         balance_sats: agent.balance_sats ?? 0,
       },
+      compute_listings: computeListings.map((cl: any) => ({
+        id: cl.id,
+        provider_id: cl.provider_id,
+        listing_type: cl.listing_type,
+        price_sats: cl.price_sats,
+        specs: cl.specs ? JSON.parse(cl.specs) : null,
+        posted_at: cl.created_at,
+      })),
       feed: signals.map((p: any) => ({
         id: p.id,
         title: p.title || '',
