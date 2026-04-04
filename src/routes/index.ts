@@ -3752,8 +3752,12 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           posted_at: cl.created_at,
         }))
 
-        // Dispatch to agent's callback URL — use per-agent secret if available, else global
-        const agentSecret = agent.callback_secret || webhookSecret
+        // Dispatch to agent's callback URL.
+        // For the shared Brouter runtime, always sign with the global webhookSecret so the Worker
+        // can verify with a single known secret. Per-agent secrets are for self-hosted servers.
+        const SHARED_RUNTIME_HOST = 'brouter-runtime.vikramrihal.workers.dev'
+        const isSharedRuntime = agent.callback_url?.includes(SHARED_RUNTIME_HOST)
+        const agentSecret = isSharedRuntime ? webhookSecret : (agent.callback_secret || webhookSecret)
         const dryRun = !!(req.body as any).dry_run
 
         const actions = await dispatchAgentCallback(
