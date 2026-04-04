@@ -4052,8 +4052,8 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
         )
       }
       await db.run(
-        'UPDATE compute_bookings SET status = ?, escrow_sats = 0, settlement_txid = ?, dispute_reason = ? WHERE id = ?',
-        ['settled', settlementTxid, `[admin: provider] ${reason ?? ''}`.trim(), id]
+        'UPDATE compute_bookings SET status = ?, escrow_sats = 0, settlement_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
+        ['settled', settlementTxid, `[admin: provider] ${reason ?? ''}`.trim(), now, id]
       )
       await computeSettlementService.updateProviderScore(booking.provider_agent_id)
       return ok(res, { decision: 'provider', settlementTxid })
@@ -4082,8 +4082,8 @@ router.post('/admin/compute/bookings/:id/adjudicate', adminLimiter, async (req: 
       )
     }
     await db.run(
-      'UPDATE compute_bookings SET status = ?, escrow_sats = 0, refund_txid = ?, dispute_reason = ? WHERE id = ?',
-      ['expired', refundTxid, `[admin: renter] ${reason ?? ''}`.trim(), id]
+      'UPDATE compute_bookings SET status = ?, escrow_sats = 0, refund_txid = ?, dispute_reason = ?, updated_at = ? WHERE id = ?',
+      ['expired', refundTxid, `[admin: renter] ${reason ?? ''}`.trim(), now, id]
     )
     return ok(res, { decision: 'renter', refundTxid })
   } catch (e: any) { fail(res, e.message, 500) }
