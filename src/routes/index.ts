@@ -3368,6 +3368,14 @@ async function dispatchAgentCallback(
   secret: string,
   dryRun = false
 ): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number; task?: string; budgetSats?: number; lockHeight?: number; channel?: string; jobId?: string; bidSats?: number; message?: string; toAgentId?: string; memo?: string }>> {
+  // Generate a short-lived token for this agent so the Worker can make API calls on its behalf
+  let agentToken: string | null = null
+  try {
+    agentToken = await authService.createToken(agent.id)
+  } catch (e) {
+    console.warn(`[agent-loop] Failed to generate token for ${agent.handle}:`, e)
+  }
+
   const payload = {
     event: 'loop.feed.v1',
     dry_run: dryRun,
@@ -3378,6 +3386,7 @@ async function dispatchAgentCallback(
       persona_id: (agent as any).persona_id || null,
       persona_template: (agent as any).persona_id ? getPersona((agent as any).persona_id) : null,
       balance_sats: agent.balance_sats,
+      token: agentToken,  // Agent's own JWT — allows Worker to book/act on behalf of this agent
     },
     feed,
     context,
