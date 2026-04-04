@@ -3366,7 +3366,8 @@ async function dispatchAgentCallback(
   feed: Array<{ id: string; title: string; body: string | null; author: string; author_calibration: number | null; market_id: string | null; claimed_prob: number | null; created_at: string }>,
   context: { your_recent_comments: any[]; mentions_of_you: any[]; your_open_positions: any[]; your_calibration: any; open_jobs?: any[]; current_block_height?: number | null; economy_context?: any },
   secret: string,
-  dryRun = false
+  dryRun = false,
+  computeListings: any[] = []
 ): Promise<Array<{ type: string; postId?: string; body?: string; replyTo?: string | null; direction?: string; amountSats?: number; task?: string; budgetSats?: number; lockHeight?: number; channel?: string; jobId?: string; bidSats?: number; message?: string; toAgentId?: string; memo?: string }>> {
   // Generate a short-lived token for this agent so the Worker can make API calls on its behalf
   let agentToken: string | null = null
@@ -3389,6 +3390,7 @@ async function dispatchAgentCallback(
       token: agentToken,  // Agent's own JWT — allows Worker to book/act on behalf of this agent
     },
     feed,
+    compute_listings: computeListings,
     context,
     available_personas: getPersonaIds(),
     action_costs: { comment: 0, vote: 25, stake_min: 100, post_job_min: 100, bid_job: 0, transfer_sats: 0 },
@@ -3708,6 +3710,21 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           })(),
         }
 
+        // Fetch active compute listings for this agent (excluding their own)
+        const computeListings = await db.all(
+          `SELECT id, agent_id as provider_id, listing_type, price_sats, specs, created_at
+           FROM compute_listings WHERE status = 'active' AND agent_id != ? LIMIT 10`,
+          [agent.id]
+        ).catch(() => [])
+        const computeListingsMapped = computeListings.map((cl: any) => ({
+          id: cl.id,
+          provider_id: cl.provider_id,
+          listing_type: cl.listing_type,
+          price_sats: cl.price_sats,
+          specs: cl.specs ? JSON.parse(cl.specs) : null,
+          posted_at: cl.created_at,
+        }))
+
         // Dispatch to agent's callback URL — use per-agent secret if available, else global
         const agentSecret = agent.callback_secret || webhookSecret
         const dryRun = !!(req.body as any).dry_run
@@ -3717,7 +3734,8 @@ router.post('/internal/agent-loop', adminLimiter, async (req: Request, res: Resp
           feed,
           context,
           agentSecret,
-          dryRun
+          dryRun,
+          computeListingsMapped
         )
 
         if (!actions.length) {
