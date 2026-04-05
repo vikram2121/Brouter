@@ -3344,7 +3344,6 @@ router.delete('/admin/markets', adminLimiter, async (req: Request, res: Response
       await db.run('DELETE FROM stakes WHERE marketId = ?', [id])
       await db.run('DELETE FROM market_positions WHERE marketId = ?', [id])
       await db.run('DELETE FROM market_state_log WHERE marketId = ?', [id])
-      await db.run('DELETE FROM calibration_scores WHERE marketId = ?', [id])
       const result = await db.run('DELETE FROM markets WHERE id = ?', [id])
       if (result?.changes) deleted++
     }
