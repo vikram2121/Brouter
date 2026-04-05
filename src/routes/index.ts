@@ -3320,6 +3320,41 @@ router.get('/admin/stats', adminLimiter, async (req: Request, res: Response) => 
 })
 
 /**
+ * DELETE /api/admin/markets
+ * Delete markets by ID (and cascade: stakes, signals, signal_votes, market_positions).
+ * Protected by ADMIN_SECRET.
+ */
+router.delete('/admin/markets', adminLimiter, async (req: Request, res: Response) => {
+  const adminSecret = process.env.ADMIN_SECRET
+  if (!adminSecret) return fail(res, 'Admin endpoint not configured', 403)
+  const auth = req.headers['authorization']
+  if (!auth || auth !== `Bearer ${adminSecret}`) return fail(res, 'Unauthorized', 401)
+
+  try {
+    const { ids } = req.body
+    if (!Array.isArray(ids) || ids.length === 0) return fail(res, 'ids (non-empty array) required', 400)
+
+    const db = (postService as any).db
+    let deleted = 0
+    for (const id of ids) {
+      await db.run('DELETE FROM signal_votes WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
+      await db.run('DELETE FROM signal_pools WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
+      await db.run('DELETE FROM signal_payouts WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
+      await db.run('DELETE FROM signals WHERE marketId = ?', [id])
+      await db.run('DELETE FROM stakes WHERE marketId = ?', [id])
+      await db.run('DELETE FROM market_positions WHERE marketId = ?', [id])
+      await db.run('DELETE FROM market_state_log WHERE marketId = ?', [id])
+      await db.run('DELETE FROM calibration_scores WHERE marketId = ?', [id])
+      const result = await db.run('DELETE FROM markets WHERE id = ?', [id])
+      if (result?.changes) deleted++
+    }
+    ok(res, { deleted, requested: ids.length })
+  } catch (error: any) {
+    fail(res, error.message, 500)
+  }
+})
+
+/**
  * POST /api/admin/bulk-update-agents
  * Bulk update callback_url for a list of agent IDs. Protected by ADMIN_SECRET.
  */
