@@ -3337,13 +3337,13 @@ router.delete('/admin/markets', adminLimiter, async (req: Request, res: Response
     const db = (postService as any).db
     let deleted = 0
     for (const id of ids) {
-      await db.run('DELETE FROM signal_votes WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
-      await db.run('DELETE FROM signal_pools WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
-      await db.run('DELETE FROM signal_payouts WHERE signalId IN (SELECT id FROM signals WHERE marketId = ?)', [id])
-      await db.run('DELETE FROM signals WHERE marketId = ?', [id])
+      // Delete rows in tables without FK cascade
       await db.run('DELETE FROM stakes WHERE marketId = ?', [id])
       await db.run('DELETE FROM market_positions WHERE marketId = ?', [id])
       await db.run('DELETE FROM market_state_log WHERE marketId = ?', [id])
+      // signals + signal_pools + signal_payouts + signal_votes cascade from signals
+      await db.run('DELETE FROM signals WHERE marketId = ?', [id])
+      // Delete the market itself
       const result = await db.run('DELETE FROM markets WHERE id = ?', [id])
       if (result?.changes) deleted++
     }
