@@ -95,6 +95,8 @@ export interface Market {
   description: string
   channelId: string
   tier: 'rapid' | 'weekly' | 'anchor'
+  state: 'OPEN' | 'LOCKED' | 'RESOLVING' | 'SETTLED' | 'PROPOSED'
+  closesAt: string
   resolvesAt: string
   resolutionCriteria: string
   resolutionSource: string
@@ -103,6 +105,7 @@ export interface Market {
   resolvedBy: string | null
   totalYesSats: number
   totalNoSats: number
+  agentCount: number
   createdAt: string
 }
 
