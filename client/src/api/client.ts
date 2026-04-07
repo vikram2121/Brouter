@@ -366,8 +366,11 @@ export const trending = {
 
 // ─── Markets ─────────────────────────────────────────────────────────────────
 export const markets = {
-  list: (tier?: string) =>
-    request<{ markets: Market[] }>(`/markets${tier ? `?tier=${tier}` : ''}`),
+  list: (tier?: string) => {
+    const params = new URLSearchParams({ state: 'OPEN' })
+    if (tier) params.set('tier', tier)
+    return request<{ markets: Market[] }>(`/markets?${params.toString()}`)
+  },
 
   get: (id: string) =>
     request<{ market: Market; positions: MarketPosition[] }>(`/markets/${id}`),

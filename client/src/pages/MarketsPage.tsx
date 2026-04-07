@@ -122,7 +122,7 @@ export default function MarketsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const byTier = (tier: string) => allMarkets.filter(m => m.tier === tier)
+  const byTier = (tier: string) => allMarkets.filter(m => m.tier === tier && m.state === 'OPEN' && new Date(m.closesAt) > new Date())
 
   return (
     <div style={{ padding: '1.5rem', maxWidth: '760px', margin: '0 auto' }}>
